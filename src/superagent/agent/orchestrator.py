@@ -13,6 +13,7 @@ from ..itsm.base import ITSMConnector
 from ..knowledge.base import KnowledgeHub
 from ..llm.base import AgentRunResult
 from ..llm.router import EXPERT, FAST, ModelRouter
+from ..mcp_tools import McpToolBridge
 from ..models import (
     Case,
     CaseEvent,
@@ -50,6 +51,8 @@ class Services:
     base_url: str = "http://localhost:8000"
     worker_id: str = "worker-1"
     kedb_writer: object | None = None  # AzureSearchSource with .upsert(), optional
+    sandbox_notes: dict[str, str] = field(default_factory=dict)  # target -> what the model should know about it
+    mcp: McpToolBridge | None = None
     command_policy: CommandPolicy = field(init=False)
 
     def __post_init__(self):
@@ -205,10 +208,11 @@ class Orchestrator:
 
             n_outcomes = len(case.outcomes)
             toolbox = CaseToolbox(s, case, tier)
+            extra_tools = await s.mcp.tool_specs() if s.mcp else []
             run: AgentRunResult = await provider.run_agent(
                 prompts.investigator_system(self.policy.agent_name, expert=(tier == EXPERT)),
                 prompts.case_brief(case, tier, s.knowledge.names, s.sandbox_targets),
-                tool_specs(s.sandbox_targets, s.knowledge.names),
+                tool_specs(s.sandbox_targets, s.knowledge.names, s.sandbox_notes) + extra_tools,
                 toolbox,
                 s.router.max_steps(tier),
             )

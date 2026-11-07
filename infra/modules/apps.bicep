@@ -34,6 +34,19 @@ param vmSubnetId string
 param entraClientId string
 @secure()
 param entraClientSecret string
+param fastUseEntra bool = false
+@description('Product sandbox image in ACR (e.g. <acr>.azurecr.io/superagent-product:1). Empty = no product sandbox.')
+param productSandboxImage string = ''
+@description('Pre-warmed product sessions. Custom-container pools bill dedicated E16 nodes while any session is ready or active: keep 0 unless you accept that cost.')
+param productReadySessions int = 0
+param atlassianBaseUrl string = ''
+param atlassianUser string = ''
+param confluenceEnabled bool = false
+param confluenceSpaces string = ''
+param jiraKbEnabled bool = false
+param jiraKbProjects string = ''
+param vmInstallerBlobUrl string = ''
+param vmSetupScript string = ''
 
 // Demo mode (mock ITSM): the mock ticket system lives in memory, so the API runs the worker in-process.
 var demoMode = itsmProvider == 'mock'
@@ -83,6 +96,45 @@ resource poolRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
+// ---------------- product sandbox: the product under test in a custom-container pool (target "product")
+resource productPool 'Microsoft.App/sessionPools@2025-01-01' = if (!empty(productSandboxImage)) {
+  name: 'spp${replace(prefix, '-', '')}${token}'
+  location: location
+  tags: tags
+  identity: { type: 'UserAssigned', userAssignedIdentities: { '${identityId}': {} } }
+  properties: {
+    environmentId: cae.id
+    poolManagementType: 'Dynamic'
+    containerType: 'CustomContainer'
+    scaleConfiguration: { maxConcurrentSessions: 5, readySessionInstances: productReadySessions }
+    dynamicPoolConfiguration: { lifecycleConfiguration: { lifecycleType: 'Timed', cooldownPeriodInSeconds: 300 } }
+    sessionNetworkConfiguration: { status: 'EgressDisabled' }
+    // The identity only pulls the image; code in a session can never get tokens for it.
+    managedIdentitySettings: [{ identity: identityId, lifecycle: 'None' }]
+    customContainerTemplate: {
+      registryCredentials: { server: registryServer, identity: identityId }
+      containers: [
+        {
+          name: 'product'
+          image: productSandboxImage
+          resources: { cpu: json('1.0'), memory: '2Gi' }
+        }
+      ]
+      ingress: { targetPort: 8080 }
+    }
+  }
+}
+
+resource productPoolRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(productSandboxImage)) {
+  name: guid(resourceGroup().id, 'product-pool', identityId, sessionExecutorRole)
+  scope: productPool
+  properties: {
+    principalId: identityPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', sessionExecutorRole)
+  }
+}
+
 // ---------------- shared app configuration
 var secretNames = [
   'fast-api-key'
@@ -94,6 +146,8 @@ var secretNames = [
   'rag-api-key'
   'webhook-secret'
   'console-api-key'
+  'atlassian-api-token'
+  'mcp-token'
 ]
 var kvSecrets = [for s in secretNames: {
   name: s
@@ -112,6 +166,8 @@ var secretEnv = [
   { name: 'SA_RAG_API_KEY', secretRef: 'rag-api-key' }
   { name: 'SA_WEBHOOK_SECRET', secretRef: 'webhook-secret' }
   { name: 'SA_CONSOLE_API_KEY', secretRef: 'console-api-key' }
+  { name: 'SA_ATLASSIAN_API_TOKEN', secretRef: 'atlassian-api-token' }
+  { name: 'SA_MCP_TOKEN', secretRef: 'mcp-token' }
 ]
 
 var commonEnv = [
@@ -127,6 +183,9 @@ var commonEnv = [
   { name: 'SA_SANDBOX_PROVIDER', value: 'aca_sessions' }
   { name: 'SA_ACA_POOL_ENDPOINT', value: pool.properties.poolManagementEndpoint }
   { name: 'SA_ACA_POOL_TYPE', value: 'python' }
+  { name: 'SA_ACA_PRODUCT_POOL_ENDPOINT', value: empty(productSandboxImage) ? '' : productPool!.properties.poolManagementEndpoint }
+  { name: 'SA_VM_INSTALLER_BLOB_URL', value: vmInstallerBlobUrl }
+  { name: 'SA_VM_SETUP_SCRIPT', value: vmSetupScript }
   { name: 'SA_VM_SUBSCRIPTION_ID', value: subscription().subscriptionId }
   { name: 'SA_VM_RESOURCE_GROUP', value: vmResourceGroup }
   { name: 'SA_VM_SUBNET_ID', value: vmSubnetId }
@@ -134,6 +193,7 @@ var commonEnv = [
   { name: 'SA_FAST_PROVIDER', value: 'openai_compat' }
   { name: 'SA_FAST_BASE_URL', value: fastBaseUrl }
   { name: 'SA_FAST_MODEL', value: fastModel }
+  { name: 'SA_FAST_USE_ENTRA', value: string(fastUseEntra) }
   { name: 'SA_EXPERT_PROVIDER', value: expertProvider }
   { name: 'SA_EXPERT_MODEL', value: expertModel }
   { name: 'SA_FOUNDRY_RESOURCE', value: foundryResource }
@@ -148,6 +208,12 @@ var commonEnv = [
   { name: 'SA_SHAREPOINT_ENABLED', value: string(sharepointEnabled) }
   { name: 'SA_AZURE_SEARCH_ENDPOINT', value: searchEndpoint }
   { name: 'SA_AZURE_SEARCH_INDEX', value: empty(searchEndpoint) ? '' : 'superagent-kedb' }
+  { name: 'SA_ATLASSIAN_BASE_URL', value: atlassianBaseUrl }
+  { name: 'SA_ATLASSIAN_USER', value: atlassianUser }
+  { name: 'SA_CONFLUENCE_ENABLED', value: string(confluenceEnabled) }
+  { name: 'SA_CONFLUENCE_SPACES', value: confluenceSpaces }
+  { name: 'SA_JIRA_KB_ENABLED', value: string(jiraKbEnabled) }
+  { name: 'SA_JIRA_KB_PROJECTS', value: jiraKbProjects }
 ]
 
 // ---------------- API (console, webhooks)
@@ -156,7 +222,7 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
   location: location
   tags: union(tags, { 'azd-service-name': 'api' })
   identity: { type: 'UserAssigned', userAssignedIdentities: { '${identityId}': {} } }
-  dependsOn: [poolRole]
+  dependsOn: [poolRole, productPoolRole]
   properties: {
     environmentId: cae.id
     workloadProfileName: 'Consumption'
@@ -191,7 +257,7 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
   location: location
   tags: union(tags, { 'azd-service-name': 'worker' })
   identity: { type: 'UserAssigned', userAssignedIdentities: { '${identityId}': {} } }
-  dependsOn: [poolRole]
+  dependsOn: [poolRole, productPoolRole]
   properties: {
     environmentId: cae.id
     workloadProfileName: 'Consumption'
@@ -257,3 +323,5 @@ resource auth 'Microsoft.App/containerApps/authConfigs@2025-01-01' = if (!empty(
 
 output apiUrl string = 'https://${api.properties.configuration.ingress.fqdn}'
 output sessionPoolEndpoint string = pool.properties.poolManagementEndpoint
+
+output productPoolEndpoint string = empty(productSandboxImage) ? '' : productPool!.properties.poolManagementEndpoint

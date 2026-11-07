@@ -4,6 +4,11 @@ param tags object
 param prefix string
 param token string
 param enableSearch bool
+@allowed(['free', 'basic', 'standard'])
+@description('free = $0 test tier (50 MB, 3 indexes, one per subscription); basic for production.')
+param searchSku string = 'free'
+@description('Optional: the deploying user; gets search roles so scripts/ingest-docs.py works with az login.')
+param userPrincipalId string = ''
 @secure()
 param secrets object
 
@@ -12,6 +17,7 @@ var roles = {
   kvSecretsUser: '4633458b-17de-408a-b874-0445c86b69e6'
   serviceBusDataOwner: '090c5cfd-751d-490a-894a-3ce6f1109419'
   searchIndexDataContributor: '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
+  searchServiceContributor: '7ca78c08-252a-4471-8644-bb5ff32d4ba0'
 }
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
@@ -179,12 +185,21 @@ resource search 'Microsoft.Search/searchServices@2023-11-01' = if (enableSearch)
   name: 'srch-${prefix}-${token}'
   location: location
   tags: tags
-  sku: { name: 'basic' }
-  properties: {
+  sku: { name: searchSku }
+  properties: union({
     authOptions: { aadOrApiKey: { aadAuthFailureMode: 'http401WithBearerChallenge' } }
-    semanticSearch: 'free'
-  }
+  }, searchSku == 'free' ? {} : { semanticSearch: 'free' })
 }
+
+resource searchUserRoles 'Microsoft.Authorization/roleAssignments@2022-04-01' = [for r in [roles.searchServiceContributor, roles.searchIndexDataContributor]: if (enableSearch && !empty(userPrincipalId)) {
+  name: guid(resourceGroup().id, userPrincipalId, r)
+  scope: search
+  properties: {
+    principalId: userPrincipalId
+    principalType: 'User'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', r)
+  }
+}]
 
 resource searchRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableSearch) {
   name: guid(resourceGroup().id, identity.id, roles.searchIndexDataContributor)

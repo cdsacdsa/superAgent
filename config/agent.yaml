@@ -14,7 +14,7 @@ routing:
   expert_max_steps: 20
   expert_effort: high             # low | medium | high | xhigh | max
   per_ticket_budget_usd: 3.0
-  daily_expert_budget_usd: 50.0
+  daily_expert_budget_usd: 5.0    # test/pilot cap; raise (e.g. 50) once you trust the spend
   expert_server_side_fallback: true   # Claude API only: refusal fallback to another model
 
 resolution:
@@ -48,6 +48,16 @@ sandbox:
   network_requires_approval: true
   vm_ttl_minutes: 120
   extra_deny_patterns: []
+
+# Extra tools from MCP servers (a product's API, GitHub, Atlassian, internal tools). Only the tools
+# listed in allowed_tools are offered to the model: list read-only tools only. Header values
+# "env:NAME" come from the environment (in Azure: the Key Vault secret mcp-token -> SA_MCP_TOKEN).
+mcp_servers: []
+#  - name: github
+#    url: https://api.githubcopilot.com/mcp/
+#    description: read-only access to the product repositories
+#    headers: {Authorization: "env:SA_MCP_TOKEN"}   # value "Bearer <fine-grained read-only PAT>"
+#    allowed_tools: [search_code, get_file_contents, search_issues]
 
 prices:                           # USD per 1M tokens, used for cost tracking and budgets
   deepseek/deepseek-v4.1-flash: {input_per_mtok: 0.06, output_per_mtok: 0.6}

@@ -1,10 +1,14 @@
 """OpenAI-compatible provider: DeepSeek V4.1 Flash via OpenRouter, the DeepSeek API, or
-Azure AI Foundry (any endpoint that speaks /chat/completions with function calling)."""
+Microsoft Foundry (any endpoint that speaks /chat/completions with function calling).
+
+On Foundry (``https://<resource>.services.ai.azure.com/openai/v1/``) the container's managed
+identity can replace the API key: pass ``api_key=azure_token_provider(client_id)``."""
 
 from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -15,6 +19,16 @@ from .base import AgentRunResult, LLMProvider, ToolCall, ToolExecutor, ToolSpec,
 
 log = logging.getLogger(__name__)
 
+FOUNDRY_SCOPE = "https://cognitiveservices.azure.com/.default"
+
+
+def azure_token_provider(client_id: str = "") -> Callable[[], Awaitable[str]]:
+    """Entra ID bearer tokens for Foundry, refreshed by azure-identity before they expire."""
+    from azure.identity.aio import DefaultAzureCredential, get_bearer_token_provider
+
+    cred = DefaultAzureCredential(managed_identity_client_id=client_id or None)
+    return get_bearer_token_provider(cred, FOUNDRY_SCOPE)
+
 
 class OpenAICompatProvider(LLMProvider):
     def __init__(
@@ -22,7 +36,7 @@ class OpenAICompatProvider(LLMProvider):
         tier: str,
         model: str,
         base_url: str,
-        api_key: str,
+        api_key: str | Callable[[], Awaitable[str]],
         price: PriceEntry | None,
         client: AsyncOpenAI | None = None,
     ):

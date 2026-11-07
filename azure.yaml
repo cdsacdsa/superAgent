@@ -27,3 +27,7 @@ hooks:
       shell: sh
       run: ./scripts/postprovision.sh
       continueOnError: true
+    windows:
+      shell: pwsh
+      run: ./scripts/postprovision.ps1
+      continueOnError: true

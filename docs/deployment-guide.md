@@ -27,12 +27,20 @@ Pick a region where Container Apps **dynamic sessions** are available (e.g. `wes
 
 ## 1. Demo deployment
 
+Both model tiers run on **Microsoft Foundry** in your subscription and are called with the managed identity,
+so there are no model API keys to manage. (To use OpenRouter/Anthropic keys instead, skip `SA_ENABLE_FOUNDRY` and
+set `SA_FAST_API_KEY` / `SA_EXPERT_API_KEY`.)
+
 ```bash
 git clone https://github.com/cdsacdsa/superAgent && cd superAgent
 ```
 
 ```bash
-azd auth login
+az login
+```
+
+```bash
+azd config set auth.useAzCliAuth true
 ```
 
 ```bash
@@ -40,15 +48,15 @@ azd env new superagent-dev
 ```
 
 ```bash
-azd env set AZURE_LOCATION westeurope
+azd env set AZURE_LOCATION swedencentral
 ```
 
 ```bash
-azd env set SA_FAST_API_KEY "<openrouter key>"
+azd env set SA_ENABLE_FOUNDRY true
 ```
 
 ```bash
-azd env set SA_EXPERT_API_KEY "<anthropic key>"
+azd env set SA_ENABLE_SEARCH true
 ```
 
 ```bash
@@ -62,6 +70,51 @@ azd up
 `azd up` provisions `infra/main.bicep`, builds the image in ACR and deploys the `api` and `worker` container apps.
 At the end it prints the console URL (`SERVICE_API_ENDPOINT`).
 
+### Choosing the models
+
+The defaults are `gpt-5-mini` (fast tier) and `claude-opus-5-5` (expert tier), both *Global Standard*. Check what
+your subscription can deploy in the region, and its quota, before `azd up`:
+
+```bash
+az cognitiveservices model list -l swedencentral --query "[?model.name=='claude-opus-5-5' || starts_with(model.name, 'DeepSeek')].{name:model.name, format:model.format, version:model.version}" -o table
+```
+
+Override with `SA_FOUNDRY_FAST_MODEL` / `_FORMAT` / `_VERSION` / `_CAPACITY` (and the `SA_FOUNDRY_EXPERT_*`
+equivalents), and add the model's price to `prices` in `config/agent.yaml` so budgets stay accurate. Claude in
+Foundry needs a paid subscription in a supported region (`swedencentral`, `eastus2`).
+
+### Product sandbox ("open the product and poke around")
+
+The `product` sandbox target runs an image with the product under test, a headless browser (`browse`) and the exec
+API. The repo ships a demo product, *Contoso Orders*, with a planted bug. Build the image once the registry exists,
+then provision again to create the pool:
+
+```bash
+./scripts/build-product-image.sh
+```
+
+```bash
+azd provision
+```
+
+On Windows use `./scripts/build-product-image.ps1`. Add `--local` / `-Local` if your subscription does not allow
+ACR Tasks (it then builds with your local Docker). To use your own product, edit `sandbox/product/Dockerfile`
+and `PRODUCT_START_CMD`, and describe it to the model with `SA_PRODUCT_SANDBOX_NOTES`.
+
+> Cost: custom-container pools run on dedicated E16 nodes while any session is ready or active. The Bicep keeps
+> zero ready sessions, so you pay only while a case uses the product (the first command of a case is slower).
+
+### Knowledge: your docs in Azure AI Search
+
+`SA_ENABLE_SEARCH=true` creates an AI Search service (Free tier by default: $0, 50 MB, one per subscription;
+set `SA_SEARCH_SKU=basic` for production). Load documents, for example the demo product's docs:
+
+```bash
+python scripts/ingest-docs.py "$(azd env get-value AZURE_SEARCH_ENDPOINT)" samples/knowledge
+```
+
+Run it with your own folder of Markdown/text/HTML runbooks, known errors and product docs. Re-run after edits.
+
 **Verify:**
 
 ```bash
@@ -69,7 +122,9 @@ At the end it prints the console URL (`SERVICE_API_ENDPOINT`).
 ```
 
 Open `https://<api-url>/?key=<console key>` to see the board, the case timeline and the approval forms.
-In demo mode the board has a "Create a test ticket" form.
+In demo mode the board has a "Create a test ticket" form. The seeded ticket **INC0010005** ("Contoso Orders: Export
+CSV shows Internal Server Error") exercises the whole flow: knowledge search, reproduction in the product sandbox,
+verified workaround, proposal for your approval.
 
 What gets created (resource group `rg-<env>`):
 
@@ -77,9 +132,13 @@ What gets created (resource group `rg-<env>`):
 |----------|-----|-------------------------------|
 | Container Apps env + 2 apps | Consumption | ~$0–30 |
 | Session pool (sandbox) | Consumption, pay per session | ~$0–10 |
+| Product session pool | Dedicated E16, 0 ready sessions | $0 idle; roughly $1–2 per hour of use |
+| Foundry models | Global Standard, pay per token | usage only; capped by `routing.*_budget_usd` |
+| AI Search | Free | $0 (Basic is ~$75/month) |
 | Cosmos DB | Serverless | ~$1–5 |
 | Service Bus | Standard | ~$10 |
 | Key Vault, ACR Basic, Log Analytics, App Insights | — | ~$5–15 |
+| Sandbox VMs (if `SA_ENABLE_VM_SANDBOX=true`) | B2s, created per case | $0 idle; cents per hour while a VM exists |
 
 ---
 
@@ -131,7 +190,8 @@ app, the Service Bus queue and KEDA scaling.
 ### 2.2 Microsoft Teams updates
 
 In the target channel open **⋯ → Workflows → "Post to a channel when a webhook request is received"**. Name it
-*SuperAgent* and copy the URL.
+*SuperAgent* and copy the URL. For a group chat instead of a channel, use the Workflows template
+**"Post to a chat when a webhook request is received"** in that chat; the payload is the same.
 
 ```bash
 azd env set SA_CHAT_PROVIDER teams
@@ -196,6 +256,39 @@ azd up
 python scripts/create-search-index.py "https://srch-<prefix>-<token>.search.windows.net"
 ```
 
+### 2.6 Confluence and Jira knowledge
+
+Create an Atlassian user (or use a service account) that can only **read** the spaces and projects the agent
+should see, and an API token for it (id.atlassian.com → Security → API tokens).
+
+```bash
+azd env set SA_ATLASSIAN_BASE_URL https://contoso.atlassian.net
+```
+
+```bash
+azd env set SA_ATLASSIAN_USER superagent-bot@contoso.com
+```
+
+```bash
+azd env set SA_ATLASSIAN_API_TOKEN "<token>"
+```
+
+```bash
+azd env set SA_CONFLUENCE_ENABLED true
+```
+
+```bash
+azd env set SA_JIRA_KB_ENABLED true
+```
+
+Optionally restrict with `SA_CONFLUENCE_SPACES=IT,PROD` and `SA_JIRA_KB_PROJECTS=ORD,SUP`, then run `azd up`.
+
+### 2.7 Tools from MCP servers (repos, product APIs, internal tools)
+
+List the servers under `mcp_servers` in `config/agent.yaml` with an explicit `allowed_tools` list of read-only
+tools (see the commented GitHub example there). Put the token in `SA_MCP_TOKEN` (`azd env set SA_MCP_TOKEN "Bearer <token>"`)
+and reference it as `env:SA_MCP_TOKEN` in `headers`. Then run `azd up`.
+
 ---
 
 ## 3. Production hardening
@@ -257,10 +350,23 @@ azd env set SA_ENABLE_VM_SANDBOX true
 azd up
 ```
 
-This creates `rg-<env>-sandbox` with a VNet/NSG that denies Internet egress and lateral traffic. The managed
-identity gets VM and Network Contributor on **that resource group only**. The agent then offers a `windows`
+This creates `rg-<env>-sandbox` with a VNet/NSG that denies Internet egress and lateral traffic, and a storage
+account for product installers. The managed identity gets VM and Network Contributor on **that resource group only**. The agent then offers a `windows`
 sandbox target, creating a VM per case on demand, running commands through Run Command, and deleting it on
 close or after `vm_ttl_minutes`.
+
+**Desktop products:** upload your installer to the `installers` container (`SANDBOX_INSTALLERS_URL`), copy
+`sandbox/windows/setup.example.ps1` to `config/sandbox/windows-setup.ps1` and adapt it, then:
+
+```bash
+azd env set SA_VM_INSTALLER_BLOB_URL "$(azd env get-value SANDBOX_INSTALLERS_URL)/<installer>.msi"
+```
+
+```bash
+azd env set SA_VM_SETUP_SCRIPT /app/config/sandbox/windows-setup.ps1
+```
+
+Run `azd up`. Every new sandbox VM runs the script once; `{installer_url}` becomes a 2-hour read-only link.
 
 ### 3.4 Go live gradually
 1. **Shadow:** keep `resolution.auto_resolve: false` for 2–4 weeks. Every proposal is reviewed. Track proposal accuracy.

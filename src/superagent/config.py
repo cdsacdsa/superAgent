@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     fast_model: str = "deepseek/deepseek-v4.1-flash"
     fast_base_url: str = "https://openrouter.ai/api/v1"
     fast_api_key: str = ""
+    fast_use_entra: bool = False  # Foundry OpenAI-compatible endpoint with the managed identity (no key)
 
     # ---- LLM: expert tier (Claude Opus 5.5 via Claude API or Microsoft Foundry)
     expert_provider: Literal["anthropic", "foundry", "openai_compat", "fake"] = "anthropic"
@@ -73,11 +74,26 @@ class Settings(BaseSettings):
     azure_search_endpoint: str = ""
     azure_search_index: str = ""
     azure_search_key: str = ""  # empty => managed identity
+    # Confluence + Jira as read-only knowledge (one Atlassian site, API token of a read-only user)
+    atlassian_base_url: str = ""  # e.g. https://contoso.atlassian.net
+    atlassian_user: str = ""
+    atlassian_api_token: str = ""
+    confluence_enabled: bool = False
+    confluence_spaces: str = ""  # comma-separated space keys; empty = every space the user can read
+    jira_kb_enabled: bool = False
+    jira_kb_projects: str = ""  # comma-separated project keys; empty = every project the user can read
 
     # ---- Sandbox
     sandbox_provider: Literal["aca_sessions", "azure_vm", "docker", "mock", "disabled"] = "mock"
     aca_pool_endpoint: str = ""
     aca_pool_type: Literal["python", "custom"] = "python"
+    # "product" target: a custom-container pool (or local Docker image) running the product under test
+    aca_product_pool_endpoint: str = ""
+    docker_product_image: str = ""
+    product_sandbox_notes: str = (
+        "the product under test runs inside this sandbox at http://localhost:3000 (logs in /tmp/product/); "
+        "use `browse <url> [--step click:<selector>] [--step fill:<selector>=<value>]` to drive its web UI"
+    )
     docker_image: str = "superagent-sandbox:latest"
     vm_subscription_id: str = ""
     vm_resource_group: str = ""
@@ -85,6 +101,8 @@ class Settings(BaseSettings):
     vm_location: str = "westeurope"
     vm_size: str = "Standard_B2s"
     vm_admin_password: str = ""
+    vm_setup_script: str = ""  # file run once on every new sandbox VM (e.g. installs the product)
+    vm_installer_blob_url: str = ""  # optional; a 2-hour read-only SAS for it replaces {installer_url} in the script
 
     # ---- Chat
     chat_provider: Literal["teams", "slack", "console"] = "console"
@@ -165,6 +183,17 @@ class SandboxPolicy(BaseModel):
     extra_deny_patterns: list[str] = []
 
 
+class McpServerConfig(BaseModel):
+    """An MCP server whose tools the agent may use (product APIs, GitHub, Atlassian, ...)."""
+
+    name: str
+    url: str  # streamable HTTP endpoint
+    description: str = ""
+    headers: dict[str, str] = {}  # a value "env:NAME" is read from the environment (Key Vault-backed in Azure)
+    allowed_tools: list[str] = []  # only these tools are offered to the model; keep them read-only
+    timeout_seconds: int = 60
+
+
 class AgentPolicy(BaseModel):
     agent_name: str = "SuperAgent"
     poll_interval_seconds: int = 60
@@ -173,6 +202,7 @@ class AgentPolicy(BaseModel):
     resolution: ResolutionPolicy = ResolutionPolicy()
     itil: ItilPolicy = ItilPolicy()
     sandbox: SandboxPolicy = SandboxPolicy()
+    mcp_servers: list[McpServerConfig] = []
     prices: dict[str, PriceEntry] = {
         "deepseek/deepseek-v4.1-flash": PriceEntry(input_per_mtok=0.06, output_per_mtok=0.6),
         "claude-opus-5-5": PriceEntry(input_per_mtok=4.0, output_per_mtok=20.0),

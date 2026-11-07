@@ -6,6 +6,11 @@ Isolation model (provisioned by ``infra/modules/sandbox-vm-network.bicep`` when 
 * a VNet/subnet whose NSG denies all Internet egress and all inbound traffic
 * no public IP, commands run through the Azure *Run Command* control plane
 * VMs are tagged with the case id and a TTL; the worker deletes them on case close or expiry
+
+Product setup: ``setup_script`` runs once on every new VM (e.g. installs your desktop product).
+If ``installer_blob_url`` is set, ``{installer_url}`` in the script is replaced with a 2-hour,
+read-only user-delegation SAS for that blob (the agent identity needs *Storage Blob Data Reader*
+and *Storage Blob Delegator* on the installers storage account; no account keys are used).
 """
 
 from __future__ import annotations
@@ -33,17 +38,19 @@ class AzureVmSandbox(Sandbox):
 
     def __init__(self, subscription_id: str, resource_group: str, subnet_id: str, location: str,
                  vm_size: str = "Standard_B2s", ttl_minutes: int = 120, mi_client_id: str = "",
-                 default_target: str = "windows"):  # fmt: skip
+                 default_target: str = "windows", setup_script: str = "", installer_blob_url: str = ""):  # fmt: skip
         from azure.identity import DefaultAzureCredential
         from azure.mgmt.compute import ComputeManagementClient
         from azure.mgmt.network import NetworkManagementClient
 
         cred = DefaultAzureCredential(managed_identity_client_id=mi_client_id or None)
+        self.cred = cred
         self.compute = ComputeManagementClient(cred, subscription_id)
         self.network = NetworkManagementClient(cred, subscription_id)
         self.rg, self.subnet_id, self.location = resource_group, subnet_id, location
         self.vm_size, self.ttl = vm_size, ttl_minutes
         self.default_target = default_target
+        self.setup_script, self.installer_blob_url = setup_script, installer_blob_url
         self._os: dict[str, str] = {}
 
     @staticmethod
@@ -83,10 +90,37 @@ class AzureVmSandbox(Sandbox):
         log.info("creating sandbox VM %s (%s) for %s", name, target, session_id)
         self.compute.virtual_machines.begin_create_or_update(self.rg, name, params).result()
         self._os[name] = target
+        if self.setup_script:
+            res = self._run_command(name, self.render_setup_script(), target)
+            log.info("sandbox VM %s setup finished (exit %s): %s", name, res.exit_code, res.stderr[:500])
         return name
 
+    def render_setup_script(self) -> str:
+        script = self.setup_script
+        if "{installer_url}" in script and self.installer_blob_url:
+            script = script.replace("{installer_url}", self._installer_sas_url())
+        return script
+
+    def _installer_sas_url(self) -> str:
+        from urllib.parse import urlparse
+
+        from azure.storage.blob import BlobSasPermissions, BlobServiceClient, generate_blob_sas
+
+        u = urlparse(self.installer_blob_url)
+        account = u.netloc.split(".")[0]
+        container, _, blob = u.path.lstrip("/").partition("/")
+        now = datetime.now(UTC)
+        key = BlobServiceClient(f"{u.scheme}://{u.netloc}", credential=self.cred).get_user_delegation_key(
+            now - timedelta(minutes=5), now + timedelta(hours=2)
+        )
+        sas = generate_blob_sas(account, container, blob, user_delegation_key=key,
+                                permission=BlobSasPermissions(read=True), expiry=now + timedelta(hours=2))  # fmt: skip
+        return f"{self.installer_blob_url}?{sas}"
+
     def _run(self, session_id: str, command: str, target: str) -> ExecResult:
-        name = self._ensure_vm(session_id, target)
+        return self._run_command(self._ensure_vm(session_id, target), command, target)
+
+    def _run_command(self, name: str, command: str, target: str) -> ExecResult:
         command_id = "RunPowerShellScript" if target == "windows" else "RunShellScript"
         t0 = time.monotonic()
         res = self.compute.virtual_machines.begin_run_command(

@@ -13,6 +13,7 @@ from .itsm.base import ITSMConnector
 from .knowledge.base import KnowledgeHub, KnowledgeSource
 from .llm.base import LLMProvider
 from .llm.router import ModelRouter
+from .mcp_tools import McpToolBridge
 from .queue.base import MemoryQueue, WorkQueue
 from .sandbox.base import Sandbox, SandboxRouter
 from .store.base import CaseStore
@@ -27,10 +28,12 @@ def build_llm(tier: str, provider: str, model: str, s: Settings, policy: AgentPo
 
         return FakeProvider(tier)
     if provider == "openai_compat":
-        from .llm.openai_compat import OpenAICompatProvider
+        from .llm.openai_compat import OpenAICompatProvider, azure_token_provider
 
         base_url = s.fast_base_url if tier == "fast" else (s.expert_base_url or s.fast_base_url)
         key = s.fast_api_key if tier == "fast" else (s.expert_api_key or s.fast_api_key)
+        if tier == "fast" and s.fast_use_entra and not s.fast_api_key:
+            key = azure_token_provider(s.azure_client_id)
         return OpenAICompatProvider(tier, model, base_url, key, price)
     from .llm.anthropic_provider import AnthropicProvider, build_anthropic_client
 
@@ -81,6 +84,15 @@ def build_knowledge(s: Settings, itsm: ITSMConnector) -> tuple[KnowledgeHub, obj
         src = AzureSearchSource(s.azure_search_endpoint, s.azure_search_index, s.azure_search_key, s.azure_client_id)
         sources.append(src)
         kedb = src
+    if s.atlassian_base_url and (s.confluence_enabled or s.jira_kb_enabled):
+        from .knowledge.atlassian import ConfluenceSource, JiraKnowledgeSource
+
+        if s.confluence_enabled:
+            sources.append(ConfluenceSource(s.atlassian_base_url, s.atlassian_user, s.atlassian_api_token,
+                                            s.confluence_spaces))  # fmt: skip
+        if s.jira_kb_enabled:
+            sources.append(JiraKnowledgeSource(s.atlassian_base_url, s.atlassian_user, s.atlassian_api_token,
+                                               s.jira_kb_projects))  # fmt: skip
     return KnowledgeHub(sources), kedb
 
 
@@ -93,21 +105,29 @@ def build_sandbox(s: Settings, policy: AgentPolicy) -> SandboxRouter | None:
         from .sandbox.mock import MockSandbox
 
         m = MockSandbox()
-        by_target = {"linux": m, "windows": m}
+        by_target = {"linux": m, "product": m, "windows": m}
     elif p == "docker":
         from .sandbox.docker_local import DockerSandbox
 
         by_target["linux"] = DockerSandbox(s.docker_image)
+        if s.docker_product_image:
+            by_target["product"] = DockerSandbox(s.docker_product_image, product=True)
     elif p == "aca_sessions":
         from .sandbox.aca_sessions import AcaSessionsSandbox
 
         by_target["linux"] = AcaSessionsSandbox(s.aca_pool_endpoint, s.aca_pool_type, s.azure_client_id)
+        if s.aca_product_pool_endpoint:
+            by_target["product"] = AcaSessionsSandbox(s.aca_product_pool_endpoint, "custom", s.azure_client_id)
     # The VM sandbox can be combined with any of the above (adds the windows target).
     if s.vm_resource_group and s.vm_subnet_id:
+        from pathlib import Path
+
         from .sandbox.azure_vm import AzureVmSandbox
 
+        setup = Path(s.vm_setup_script).read_text(encoding="utf-8") if s.vm_setup_script else ""
         vm = AzureVmSandbox(s.vm_subscription_id, s.vm_resource_group, s.vm_subnet_id, s.vm_location, s.vm_size,
-                            policy.sandbox.vm_ttl_minutes, s.azure_client_id)  # fmt: skip
+                            policy.sandbox.vm_ttl_minutes, s.azure_client_id, setup_script=setup,
+                            installer_blob_url=s.vm_installer_blob_url)  # fmt: skip
         by_target["windows"] = vm
         by_target.setdefault("linux", vm)
     return SandboxRouter(by_target) if by_target else None
@@ -168,8 +188,14 @@ def build_services(settings: Settings | None = None, policy: AgentPolicy | None 
         base_url=s.public_base_url.rstrip("/"),
         worker_id=f"{socket.gethostname()}-{os.getpid()}",
         kedb_writer=kedb,
+        sandbox_notes={"product": s.product_sandbox_notes},
+        mcp=overrides.pop("mcp") if "mcp" in overrides else build_mcp(policy),
     )
     return services
+
+
+def build_mcp(policy: AgentPolicy) -> McpToolBridge | None:
+    return McpToolBridge(policy.mcp_servers) if any(m.allowed_tools for m in policy.mcp_servers) else None
 
 
 def build_orchestrator(**kw) -> Orchestrator:

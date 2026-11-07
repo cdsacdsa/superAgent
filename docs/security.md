@@ -40,6 +40,11 @@
   - credential dumping and credential files
 
   It also bounds runtime and output, requires approval for any network mode, and logs every blocked attempt.
+- **Product sandbox.** Same pool isolation (Hyper-V, egress disabled). The pool's managed identity is used only to
+  pull the image (`lifecycle: None`): code in a session cannot get tokens. Put test data only in product images.
+- **VM product installers.** Entra-only storage account (no keys, no public blobs). VMs receive a 2-hour, read-only
+  user-delegation SAS for one blob; they have no identity of their own.
+- **MCP tools.** Allow-list only (`allowed_tools`); calls are audited, redacted, truncated and marked untrusted.
 - **Output handling.** Command output is truncated, redacted and wrapped as `<untrusted_output>` before the model sees it.
 
 ## Prompt-injection defences
@@ -66,6 +71,9 @@
 
 ## Network
 - The API is the only public endpoint, and it uses HTTPS only. Webhooks require a shared secret (constant-time comparison).
+- The sandbox VM subnet allows outbound 443 to the `AzureCloud` service tag (Run Command and the VM agent need it).
+  That tag covers all of Azure, not only your subscription; for production, narrow it with an Azure Firewall or
+  explicit service tags.
 - **Optional hardening:**
   - Container Apps environment with VNet integration
   - private endpoints for Cosmos, Service Bus and Key Vault

@@ -21,6 +21,7 @@ There are two layers:
 | `SA_FAST_BASE_URL` | `https://openrouter.ai/api/v1` | Any OpenAI-compatible endpoint |
 | `SA_FAST_MODEL` | `deepseek/deepseek-v4.1-flash` | |
 | `SA_FAST_API_KEY` | | secret |
+| `SA_FAST_USE_ENTRA` | `false` | Call a Foundry OpenAI-compatible endpoint with the managed identity instead of a key (set by Bicep when `SA_ENABLE_FOUNDRY=true`) |
 | `SA_EXPERT_PROVIDER` | `anthropic` | `anthropic` \| `foundry` \| `openai_compat` \| `fake` |
 | `SA_EXPERT_MODEL` | `claude-opus-5-5` | `anthropic/claude-opus-5.5` when using OpenRouter |
 | `SA_EXPERT_API_KEY` | | secret (Claude API key; not needed with Foundry + managed identity) |
@@ -38,12 +39,21 @@ There are two layers:
 | `SA_GRAPH_REGION` | `EMEA` | Required by Graph search for app-only calls (`NAM`, `EMEA`, `APC`, …) |
 | `SA_SHAREPOINT_SITE_FILTER` | | KQL appended to every query |
 | `SA_RAG_API_URL` / `_KEY` / `_KEY_HEADER` | | |
-| `SA_AZURE_SEARCH_ENDPOINT` / `_INDEX` / `_KEY` | | KEDB; the key is optional (managed identity) |
+| `SA_AZURE_SEARCH_ENDPOINT` / `_INDEX` / `_KEY` | | KEDB + product docs (`scripts/ingest-docs.py`); the key is optional (managed identity) |
+| `SA_ATLASSIAN_BASE_URL` / `_USER` / `_API_TOKEN` | | Atlassian Cloud site and a read-only user for Confluence/Jira knowledge (token is a secret) |
+| `SA_CONFLUENCE_ENABLED` / `SA_CONFLUENCE_SPACES` | `false` / | Search Confluence pages; comma-separated space keys (empty = all readable) |
+| `SA_JIRA_KB_ENABLED` / `SA_JIRA_KB_PROJECTS` | `false` / | Search past Jira issues; comma-separated project keys (empty = all readable) |
 | **Sandbox** | | |
 | `SA_SANDBOX_PROVIDER` | `mock` | `aca_sessions` \| `docker` \| `mock` \| `disabled` |
 | `SA_ACA_POOL_ENDPOINT` / `SA_ACA_POOL_TYPE` | | `python` (built-in) or `custom` |
 | `SA_DOCKER_IMAGE` | `superagent-sandbox:latest` | Local Docker sandbox (falls back to `python:3.12-slim`) |
 | `SA_VM_SUBSCRIPTION_ID` / `_RESOURCE_GROUP` / `_SUBNET_ID` / `_LOCATION` / `_SIZE` | | Enables the `windows` target |
+| `SA_VM_SETUP_SCRIPT` / `SA_VM_INSTALLER_BLOB_URL` | | Script run once on each new sandbox VM (e.g. installs your product); `{installer_url}` becomes a 2-hour read-only link to the blob |
+| `SA_ACA_PRODUCT_POOL_ENDPOINT` | | Custom-container pool running the product under test (`product` target) |
+| `SA_DOCKER_PRODUCT_IMAGE` | | Local alternative: Docker image built from `sandbox/product/` |
+| `SA_PRODUCT_SANDBOX_NOTES` | demo text | What the model is told about the product target (URL, logs, `browse`) |
+| **Tools** | | |
+| `SA_MCP_TOKEN` | | secret; referenced from `mcp_servers[].headers` as `env:SA_MCP_TOKEN` |
 | **Chat** | | |
 | `SA_CHAT_PROVIDER` | `console` | `teams` \| `slack` \| `console` |
 | `SA_TEAMS_WEBHOOK_URL` / `SA_SLACK_WEBHOOK_URL` | | secrets |
@@ -73,7 +83,7 @@ The annotated default file is the reference. The most important knobs:
 | `routing.expert_direct_complexity` | `5` | Start directly on the expert tier |
 | `routing.p1_expert_first` | `true` | P1 / Major Incidents start on the expert tier |
 | `routing.expert_effort` | `high` | Opus 5.5 effort level |
-| `routing.per_ticket_budget_usd` / `daily_expert_budget_usd` | `3` / `50` | Hard cost guardrails |
+| `routing.per_ticket_budget_usd` / `daily_expert_budget_usd` | `3` / `5` | Hard cost guardrails (raise the daily cap after the pilot) |
 | `resolution.auto_resolve` | `false` | Shadow mode when false |
 | `resolution.auto_resolve_threshold` | `0.85` | Confidence needed to close without a human |
 | `resolution.auto_resolve_max_priority` | `3` | P1/P2 always need approval |
@@ -85,6 +95,7 @@ The annotated default file is the reference. The most important knobs:
 | `sandbox.max_runtime_seconds` / `max_output_chars` | `120` / `12000` | Per-command bounds |
 | `sandbox.network_requires_approval` | `true` | Human approval for any sandbox network access |
 | `sandbox.extra_deny_patterns` | `[]` | Your own regex deny rules |
+| `mcp_servers` | `[]` | MCP servers whose `allowed_tools` the agent may call (see [connectors.md](connectors.md#mcp-tools)) |
 | `prices` | | USD per 1M tokens for cost tracking |
 
 ## Prompts

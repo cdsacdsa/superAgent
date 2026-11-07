@@ -49,6 +49,19 @@ SAMPLE_TICKETS = [
         "urgency": 2,
         "requester": "Payroll Ops",
     },
+    {
+        # Pairs with the demo product in sandbox/product/ and the docs in samples/knowledge/
+        "id": "INC0010005",
+        "title": "Contoso Orders: Export CSV shows Internal Server Error",
+        "description": "Since Contoso Orders was upgraded yesterday, clicking Export CSV on the orders page shows "
+        "'Internal Server Error' (ref: ERR-EXPORT-500). The orders page itself loads fine. Finance needs the "
+        "export for month-end closing today.",
+        "category": "application",
+        "configuration_item": "Contoso Orders",
+        "impact": 2,
+        "urgency": 2,
+        "requester": "Rita Lopes (Finance)",
+    },
 ]
 
 SAMPLE_KB = [

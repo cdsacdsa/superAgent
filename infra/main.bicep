@@ -49,6 +49,43 @@ param enableSearch string = 'false'
 @description('Entra ID app registration (client id) protecting the console. Empty = API-key auth.')
 param entraClientId string = ''
 
+@description('Run both model tiers on Microsoft Foundry with the managed identity (no API keys). Overrides the fast*/expert* settings above.')
+@allowed(['true', 'false'])
+param enableFoundry string = 'false'
+@description('Foundry deployments: name = model name; version empty = the model\'s default version.')
+param foundryFastModel string = 'gpt-5-mini'
+param foundryFastModelFormat string = 'OpenAI'
+param foundryFastModelVersion string = ''
+param foundryFastSku string = 'GlobalStandard'
+param foundryFastCapacity int = 50
+param foundryExpertModel string = 'claude-opus-5-5'
+param foundryExpertModelFormat string = 'Anthropic'
+param foundryExpertModelVersion string = ''
+param foundryExpertSku string = 'GlobalStandard'
+param foundryExpertCapacity int = 10
+
+@allowed(['free', 'basic', 'standard'])
+param searchSku string = 'free'
+@description('The deploying user (azd sets AZURE_PRINCIPAL_ID): gets data roles to ingest docs and upload installers.')
+param principalId string = ''
+
+@description('Product sandbox image in ACR (see scripts/build-product-image). Empty = no "product" sandbox target.')
+param productSandboxImage string = ''
+
+@description('Confluence + Jira knowledge (Atlassian Cloud site, read-only user).')
+param atlassianBaseUrl string = ''
+param atlassianUser string = ''
+@allowed(['true', 'false'])
+param confluenceEnabled string = 'false'
+param confluenceSpaces string = ''
+@allowed(['true', 'false'])
+param jiraKbEnabled string = 'false'
+param jiraKbProjects string = ''
+
+@description('Windows sandbox VMs: installer blob (in the sandbox storage account) and setup script path inside the image.')
+param vmInstallerBlobUrl string = ''
+param vmSetupScript string = ''
+
 // ---------------- secrets (stored in Key Vault, never in app settings)
 @secure()
 param fastApiKey string = ''
@@ -70,8 +107,13 @@ param webhookSecret string = ''
 param consoleApiKey string = ''
 @secure()
 param entraClientSecret string = ''
+@secure()
+param atlassianApiToken string = ''
+@secure()
+param mcpToken string = ''
 
 var vmSandbox = enableVmSandbox == 'true'
+var foundryOn = enableFoundry == 'true'
 var searchEnabled = enableSearch == 'true'
 var tags = { 'azd-env-name': environmentName, app: 'superagent' }
 var token = toLower(uniqueString(subscription().id, environmentName, location))
@@ -98,6 +140,8 @@ module core 'modules/core.bicep' = {
     prefix: prefix
     token: token
     enableSearch: searchEnabled
+    searchSku: searchSku
+    userPrincipalId: principalId
     secrets: {
       'fast-api-key': fastApiKey
       'expert-api-key': expertApiKey
@@ -108,6 +152,8 @@ module core 'modules/core.bicep' = {
       'rag-api-key': ragApiKey
       'webhook-secret': webhookSecret
       'console-api-key': consoleApiKey
+      'atlassian-api-token': atlassianApiToken
+      'mcp-token': mcpToken
     }
   }
 }
@@ -120,6 +166,34 @@ module sandboxNet 'modules/sandbox-vm-network.bicep' = if (vmSandbox) {
     tags: tags
     prefix: prefix
     principalId: core.outputs.identityPrincipalId
+    userPrincipalId: principalId
+  }
+}
+
+module foundry 'modules/foundry.bicep' = if (foundryOn) {
+  name: 'foundry'
+  scope: rg
+  params: {
+    location: location
+    tags: tags
+    prefix: prefix
+    token: token
+    principalId: core.outputs.identityPrincipalId
+    userPrincipalId: principalId
+    fastModel: {
+      name: foundryFastModel
+      format: foundryFastModelFormat
+      version: foundryFastModelVersion
+      sku: foundryFastSku
+      capacity: foundryFastCapacity
+    }
+    expertModel: {
+      name: foundryExpertModel
+      format: foundryExpertModelFormat
+      version: foundryExpertModelVersion
+      sku: foundryExpertSku
+      capacity: foundryExpertCapacity
+    }
   }
 }
 
@@ -144,11 +218,21 @@ module apps 'modules/apps.bicep' = {
     searchEndpoint: core.outputs.searchEndpoint
     itsmProvider: itsmProvider
     chatProvider: chatProvider
-    fastBaseUrl: fastBaseUrl
-    fastModel: fastModel
-    expertProvider: expertProvider
-    expertModel: expertModel
-    foundryResource: foundryResource
+    fastBaseUrl: foundryOn ? foundry!.outputs.openaiBaseUrl : fastBaseUrl
+    fastModel: foundryOn ? foundry!.outputs.fastDeployment : fastModel
+    fastUseEntra: foundryOn
+    expertProvider: foundryOn ? 'foundry' : expertProvider
+    expertModel: foundryOn ? foundry!.outputs.expertDeployment : expertModel
+    foundryResource: foundryOn ? foundry!.outputs.name : foundryResource
+    productSandboxImage: productSandboxImage
+    atlassianBaseUrl: atlassianBaseUrl
+    atlassianUser: atlassianUser
+    confluenceEnabled: confluenceEnabled == 'true'
+    confluenceSpaces: confluenceSpaces
+    jiraKbEnabled: jiraKbEnabled == 'true'
+    jiraKbProjects: jiraKbProjects
+    vmInstallerBlobUrl: vmInstallerBlobUrl
+    vmSetupScript: vmSetupScript
     servicenowInstance: servicenowInstance
     servicenowUser: servicenowUser
     jiraBaseUrl: jiraBaseUrl
@@ -173,3 +257,7 @@ output AZURE_MANAGED_IDENTITY_PRINCIPAL_ID string = core.outputs.identityPrincip
 output AZURE_MANAGED_IDENTITY_CLIENT_ID string = core.outputs.identityClientId
 output SERVICE_API_ENDPOINT string = apps.outputs.apiUrl
 output SESSION_POOL_ENDPOINT string = apps.outputs.sessionPoolEndpoint
+output PRODUCT_POOL_ENDPOINT string = apps.outputs.productPoolEndpoint
+output AZURE_SEARCH_ENDPOINT string = core.outputs.searchEndpoint
+output AZURE_FOUNDRY_NAME string = foundryOn ? foundry!.outputs.name : ''
+output SANDBOX_INSTALLERS_URL string = vmSandbox ? sandboxNet!.outputs.installersUrl : ''

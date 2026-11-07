@@ -61,6 +61,19 @@ If your service differs, construct `RagApiSource` in `container.py` with:
 ### Azure AI Search (`knowledge/azure_search.py`)
 - Keyword search over the `superagent-kedb` index. Resolved cases are written back (`upsert`) as known errors.
 - Create the index with `scripts/create-search-index.py`. For semantic or vector search, extend the request body.
+- Load your product docs, runbooks and known errors with `scripts/ingest-docs.py <endpoint> <folder>`: Markdown,
+  text and HTML, split at headings, one search document per section. Re-run it after edits (upserts by path).
+  `samples/knowledge/` holds the demo product's docs.
+
+### Confluence (`knowledge/atlassian.py`)
+- CQL `type = page AND text ~ "..."` through `GET /wiki/rest/api/content/search`, with the page body rendered to text.
+- Basic auth with an API token of a user that can only read the spaces the agent should see
+  (`SA_ATLASSIAN_*`, optionally `SA_CONFLUENCE_SPACES`). Query operators from the model are stripped.
+
+### Jira issues as knowledge (`knowledge/atlassian.py`)
+- Past bugs and support tickets: JQL `text ~ "..."` through `POST /rest/api/3/search/jql`, returning summary,
+  description, status, resolution and the last three comments. Scope it with `SA_JIRA_KB_PROJECTS`.
+- Independent of the ITSM connector: the tickets can live in ServiceNow while bug history lives in Jira.
 
 ### ITSM knowledge (`knowledge/itsm_kb.py`)
 - Always on. It combines KB articles with resolved similar tickets from the connected ITSM tool.
@@ -72,7 +85,7 @@ single source dominates, and removes duplicates. A failing source is logged and 
 
 | Channel | Setup | Format |
 |---------|-------|--------|
-| Teams (`chat/teams.py`) | Workflows → *Post to a channel when a webhook request is received* | Adaptive Card 1.4 with FactSet and "Answer / Review & approve / Open ticket" buttons |
+| Teams (`chat/teams.py`) | Workflows → *Post to a channel when a webhook request is received* (or *Post to a chat when a webhook request is received* for a group chat) | Adaptive Card 1.4 with FactSet and "Answer / Review & approve / Open ticket" buttons |
 | Slack (`chat/slack.py`) | Incoming webhook | Block Kit |
 | Console (`chat/base.py`) | — | Logs only |
 
@@ -85,7 +98,8 @@ records who gave it. A Teams bot (Bot Framework) can be added later on top of th
 |----------|-----------|-----|
 | `aca_sessions` (`python` pool) | Hyper-V container per case, egress disabled, Entra-authenticated management endpoint | Default in Azure; no image to build |
 | `aca_sessions` (`custom` pool) | Same, with your own image from `sandbox/` (dig, openssl, ldap-utils, smbclient, …) | Richer tooling |
-| `azure_vm` | Ephemeral VM in an isolated RG/VNet, NSG denies Internet egress, no public IP, Run Command only | Windows / full-OS repros |
+| `aca_sessions` (`product` target) | Same isolation; image from `sandbox/product/`: your product + a headless browser (`browse`) + the exec API | Open the product and poke around (demo: Contoso Orders) |
+| `azure_vm` | Ephemeral VM in an isolated RG/VNet, NSG denies Internet egress, no public IP, Run Command only | Windows / full-OS repros; desktop products via `SA_VM_SETUP_SCRIPT` |
 | `docker` | `--network none --read-only --cap-drop ALL`, non-root, memory/pid limits | Local development |
 | `mock` | — | Tests and demo |
 
@@ -101,11 +115,22 @@ az containerapp sessionpool create -g <rg> -n sp-custom --environment <cae> --co
 
 Then set `SA_ACA_POOL_TYPE=custom` and `SA_ACA_POOL_ENDPOINT` to the new pool's management endpoint.
 
+The **product** pool is created by the Bicep when `SA_PRODUCT_SANDBOX_IMAGE` is set (`scripts/build-product-image.*`).
+Custom-container pools run on dedicated E16 nodes billed while any session is *ready or active*, so the
+Bicep keeps zero ready sessions and the minimum 300 s cooldown: you pay only while a case uses the product.
+
+## MCP tools <a id="mcp-tools"></a>
+
+`mcp_tools.py` connects to MCP servers (streamable HTTP) listed under `mcp_servers` in `config/agent.yaml`:
+a product's own API, GitHub, Atlassian or internal tools. Only the tools in `allowed_tools` are offered to the
+model (list read-only tools); they appear as `mcp_<server>__<tool>`, go through the same audit log, redaction and
+truncation as built-in tools, and their output is wrapped as untrusted. A server that is down is skipped and
+retried on the next investigation. Secrets go in headers as `env:NAME` (in Azure: Key Vault `mcp-token`).
+
 ## Adding a connector
 
 1. Subclass the interface: `ITSMConnector`, `KnowledgeSource`, `ChatChannel`, `Sandbox`.
 2. Add settings to `config.py` and wire them in `container.py`.
 3. Add a mocked-HTTP test like those in `tests/test_connectors.py`.
 
-Example: a Confluence knowledge source is about 40 lines. It calls `GET /wiki/rest/api/search?cql=text~"..."`
-and maps each result to a `KnowledgeHit`.
+Example: `knowledge/atlassian.py` (Confluence and Jira) is a good template for a REST knowledge source.

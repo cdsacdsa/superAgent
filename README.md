@@ -3,13 +3,16 @@
 SuperAgent picks up tickets from your ITSM tool and works them like a senior 2nd/3rd-line engineer:
 
 - It **triages** each ticket with ITIL (type, impact × urgency → priority, SLA).
-- It **investigates** with your knowledge sources: SharePoint, your RAG API, Azure AI Search, ITSM KB articles and similar resolved tickets.
-- It **reproduces and tests** in a secure sandbox (Azure Container Apps dynamic sessions or an ephemeral VM).
+- It **investigates** with your knowledge sources: SharePoint, Confluence, past Jira issues, your RAG API, your docs in
+  Azure AI Search, ITSM KB articles and similar resolved tickets, plus any read-only tools you expose through MCP.
+- It **reproduces and tests** in a secure sandbox (Azure Container Apps dynamic sessions or an ephemeral VM), including
+  a sandbox running **your product**, where it can open the UI with a headless browser and read the logs.
 - It **resolves** the ticket, or **hands it over** to a human team with a proper handover note.
 - It **asks people for help** when needed and posts its progress to Teams/Slack.
 
-It is cheap by default. **DeepSeek V4.1 Flash** does most of the work. **Claude Opus 5.5** is called only for
-complex or failed cases, as a second opinion before any human is involved.
+It is cheap by default. A fast, low-cost model does most of the work. **Claude Opus 5.5** is called only for
+complex or failed cases, as a second opinion before any human is involved. Both can run on Microsoft Foundry in
+your subscription with the managed identity (no API keys), or through OpenRouter and the Claude API.
 
 ```mermaid
 flowchart LR
@@ -73,10 +76,14 @@ In a second terminal:
 ./scripts/smoke-test.sh http://localhost:8000
 ```
 
-## Deploy to Azure (one command)
+## Deploy to Azure
 
 ```bash
-azd auth login
+az login
+```
+
+```bash
+azd config set auth.useAzCliAuth true
 ```
 
 ```bash
@@ -84,11 +91,15 @@ azd env new superagent-dev
 ```
 
 ```bash
-azd env set SA_FAST_API_KEY <openrouter-key>
+azd env set AZURE_LOCATION swedencentral
 ```
 
 ```bash
-azd env set SA_EXPERT_API_KEY <anthropic-key>
+azd env set SA_ENABLE_FOUNDRY true
+```
+
+```bash
+azd env set SA_ENABLE_SEARCH true
 ```
 
 ```bash
@@ -99,9 +110,11 @@ azd env set SA_CONSOLE_API_KEY "$(openssl rand -hex 24)"
 azd up
 ```
 
-This creates Container Apps (api + worker), Service Bus, Cosmos DB, Key Vault, App Insights, ACR and a
-sandbox session pool, all wired with a managed identity. It starts in **demo mode** (mock ITSM).
-To connect ServiceNow, Teams, SharePoint and the rest, follow [docs/deployment-guide.md](docs/deployment-guide.md).
+This creates Container Apps (api + worker), Microsoft Foundry with both model deployments, Service Bus, Cosmos DB,
+Key Vault, App Insights, ACR, Azure AI Search (Free tier) and a sandbox session pool, all wired with a managed
+identity. It starts in **demo mode** (mock ITSM, with a demo product ticket). Then add the product sandbox
+(`scripts/build-product-image.*` + `azd provision`) and load your docs (`scripts/ingest-docs.py`). To connect
+ServiceNow, Teams, Confluence, Jira, SharePoint and the rest, follow [docs/deployment-guide.md](docs/deployment-guide.md).
 
 ## Repository layout
 
@@ -109,8 +122,9 @@ To connect ServiceNow, Teams, SharePoint and the rest, follow [docs/deployment-g
 src/superagent/     application code (orchestrator, router, connectors, sandbox, API)
 config/agent.yaml   behaviour policy: thresholds, ITIL rules, budgets, prices
 infra/              Bicep (subscription-scope main + modules)
-sandbox/            optional custom sandbox image
-scripts/            deploy, smoke test, Graph permissions, search index
+sandbox/            sandbox images: troubleshooting tools, product sandbox (demo product + browser), VM setup
+samples/knowledge/  demo product docs for scripts/ingest-docs.py
+scripts/            deploy, smoke test, Graph permissions, search index + doc ingest, product image build
 tests/              unit + end-to-end tests (pytest)
 docs/               documentation
 ```

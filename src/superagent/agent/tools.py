@@ -37,7 +37,9 @@ OUTCOME_SCHEMA = {
 }  # fmt: skip
 
 
-def tool_specs(sandbox_targets: list[str], sources: list[str]) -> list[ToolSpec]:
+def tool_specs(sandbox_targets: list[str], sources: list[str], target_notes: dict[str, str] | None = None) -> list[ToolSpec]:
+    notes = {"windows": "PowerShell", **(target_notes or {})}
+    targets_text = "; ".join(f"{t} ({notes[t]})" if t in notes else t for t in sandbox_targets)
     specs = [
         ToolSpec(
             "search_knowledge",
@@ -105,8 +107,8 @@ def tool_specs(sandbox_targets: list[str], sources: list[str]) -> list[ToolSpec]
                 "sandbox_exec",
                 "Run a shell command in an isolated, disposable troubleshooting sandbox (no production access, no "
                 "network unless approved). Use it to reproduce issues, test commands/scripts, validate configs, "
-                f"parse logs. Targets: {', '.join(sandbox_targets)} (windows = PowerShell). The session persists "
-                "for this case, so files you create stay available.",
+                f"parse logs. Targets: {targets_text}. The session persists for this case, so files you create "
+                "stay available.",
                 {"type": "object", "required": ["command", "purpose"], "properties": {
                     "command": {"type": "string"}, "purpose": {"type": "string"},
                     "target": {"type": "string", "enum": sandbox_targets},
@@ -125,11 +127,17 @@ class CaseToolbox:
 
     async def __call__(self, call: ToolCall) -> ToolResult:
         handler = getattr(self, f"t_{call.name}", None)
-        if handler is None:
+        mcp = self.s.mcp if handler is None and self.s.mcp and self.s.mcp.owns(call.name) else None
+        if handler is None and mcp is None:
             return ToolResult(f"unknown tool {call.name}", is_error=True)
         await self.s.event(self.case, "tool_call", f"{self.tier}: {call.name}", {"args": _short(call.arguments)})
         try:
-            res: ToolResult = await handler(**call.arguments)
+            if mcp is not None:
+                text, is_error = await mcp.call(call.name, call.arguments)
+                res = ToolResult(self.s.command_policy.truncate(f"<untrusted_output>\n{text}\n</untrusted_output>"),
+                                 is_error=is_error)  # fmt: skip
+            else:
+                res = await handler(**call.arguments)
         except TypeError as e:
             return ToolResult(f"invalid arguments: {e}", is_error=True)
         except Exception as e:  # noqa: BLE001 - tool failures are reported back to the model

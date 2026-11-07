@@ -13,9 +13,12 @@ class DockerSandbox(Sandbox):
     name = "docker"
     targets = ("linux",)
 
-    def __init__(self, image: str = "superagent-sandbox:latest", fallback_image: str = "python:3.12-slim"):
+    def __init__(self, image: str = "superagent-sandbox:latest", fallback_image: str = "python:3.12-slim",
+                 product: bool = False):  # fmt: skip
         self.image = image
         self.fallback_image = fallback_image
+        # product images keep their own entrypoint (it starts the product) and need a browser's resources
+        self.product = product
         self._started: dict[str, str] = {}
 
     @staticmethod
@@ -40,15 +43,20 @@ class DockerSandbox(Sandbox):
         image = self.image
         rc, _, _ = await self._run("docker", "image", "inspect", image)
         if rc != 0:
+            if self.product:
+                raise RuntimeError(f"product sandbox image {image} not found (build it from sandbox/product/)")
             image = self.fallback_image
         net = "none" if network == "none" else "bridge"
-        rc, _, err = await self._run(
-            "docker", "run", "-d", "--rm", "--name", name, f"--network={net}",
-            "--read-only", "--tmpfs", "/tmp:rw,size=256m,mode=1777", "--tmpfs", "/work:rw,size=256m,uid=65534,gid=65534",
-            "--cap-drop=ALL", "--security-opt=no-new-privileges", "--memory=512m", "--cpus=1",
-            "--pids-limit=128", "--user=65534:65534", "-w", "/work",
-            image, "sleep", "7200", timeout=180,
-        )  # fmt: skip
+        common = ["docker", "run", "-d", "--rm", "--name", name, f"--network={net}", "--read-only",
+                  "--cap-drop=ALL", "--security-opt=no-new-privileges"]  # fmt: skip
+        if self.product:
+            args = [*common, "--tmpfs", "/tmp:rw,size=512m,mode=1777", "--tmpfs", "/home/sandbox:rw,size=256m,uid=10001",
+                    "--shm-size=256m", "--memory=2g", "--cpus=2", "--pids-limit=512", image]  # fmt: skip
+        else:
+            args = [*common, "--tmpfs", "/tmp:rw,size=256m,mode=1777", "--tmpfs", "/work:rw,size=256m,uid=65534,gid=65534",
+                    "--memory=512m", "--cpus=1", "--pids-limit=128", "--user=65534:65534", "-w", "/work",
+                    image, "sleep", "7200"]  # fmt: skip
+        rc, _, err = await self._run(*args, timeout=180)
         if rc != 0 and "already in use" not in err:
             raise RuntimeError(f"docker run failed: {err.strip()}")
         self._started[name] = image
