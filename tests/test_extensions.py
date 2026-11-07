@@ -215,3 +215,40 @@ async def test_reasoning_models_get_max_completion_tokens_and_effort():
     assert (await p.complete_json("s", "u", {}, "x"))[0] == {"a": 1}
     assert [("max_tokens" in b, b.get("max_completion_tokens"), b.get("reasoning_effort")) for b in bodies] == [
         (True, None, "low"), (False, 4000, "low"), (False, 4000, "low")]  # the switch is remembered
+
+
+def test_secret_placeholders_from_bicep_are_treated_as_empty():
+    s = Settings(fast_api_key="not-set", teams_webhook_url="not-set", fast_use_entra=True)
+    assert s.fast_api_key == "" and s.teams_webhook_url == ""
+
+
+async def test_failing_case_is_handed_over_after_three_attempts(make_env):
+    from superagent.models import CaseStatus
+
+    env = make_env()
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("model unavailable")
+
+    env.fast.complete_json = broken
+    assert await env.orch.intake("INC0010002")
+    msg = env.queue.q.get_nowait()
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            await env.orch.handle(msg)
+    await env.orch.handle(msg)  # third failure: handed over instead of redelivered
+    case = await env.store.get("INC0010002")
+    assert case.attempts == 3 and case.status == CaseStatus.HANDED_OVER
+
+
+async def test_memory_queue_redelivers_failed_messages_after_a_delay():
+    import asyncio
+
+    from superagent.models import QueueMessage
+    from superagent.queue.base import MemoryQueue
+
+    q = MemoryQueue(retry_delay_s=0.05)
+    await q.abandon(QueueMessage(kind="process_ticket", ticket_id="X"))
+    assert q.q.empty()
+    await asyncio.sleep(0.1)
+    assert q.q.get_nowait().ticket_id == "X"

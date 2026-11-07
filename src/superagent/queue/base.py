@@ -28,8 +28,9 @@ class WorkQueue(ABC):
 
 
 class MemoryQueue(WorkQueue):
-    def __init__(self):
+    def __init__(self, retry_delay_s: float = 30):
         self.q: asyncio.Queue[QueueMessage] = asyncio.Queue()
+        self.retry_delay_s = retry_delay_s  # failed messages come back after this, not in a tight loop
 
     async def send(self, msg, delay_s=0):
         if delay_s:
@@ -43,4 +44,4 @@ class MemoryQueue(WorkQueue):
             yield msg, msg
 
     async def abandon(self, handle):
-        await self.q.put(handle)  # type: ignore[arg-type]
+        await self.send(handle, delay_s=self.retry_delay_s)  # type: ignore[arg-type]

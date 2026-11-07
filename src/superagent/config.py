@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -124,6 +124,14 @@ class Settings(BaseSettings):
         default_factory=lambda: os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING", "")
     )
     azure_client_id: str = Field(default_factory=lambda: os.environ.get("AZURE_CLIENT_ID", ""))
+
+    @model_validator(mode="after")
+    def _drop_secret_placeholders(self) -> Settings:
+        # The Bicep stores "not-set" for empty secrets so Key Vault references always resolve.
+        for name, value in self.__dict__.items():
+            if value == "not-set":
+                setattr(self, name, "")
+        return self
 
 
 # --------------------------------------------------------------------------- policy (YAML)

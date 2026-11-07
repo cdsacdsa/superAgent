@@ -115,9 +115,13 @@ class Orchestrator:
         except Exception as e:
             log.exception("processing %s failed", case.id)
             await self.s.event(case, "error", f"processing failed: {type(e).__name__}: {e}")
-            case.attempts += 1
-            if case.attempts >= 3:
-                await self._handover(case, f"agent error after {case.attempts} attempts: {type(e).__name__}")
+            # count on the stored case (``case`` may be stale after _process saved newer versions)
+            current = await self.s.store.get(case.id) or case
+            current.attempts += 1
+            current = await self._save(current)
+            if current.attempts >= 3:
+                await self._handover(current, f"agent error after {current.attempts} attempts: {type(e).__name__}")
+                return  # handed over: do not redeliver
             raise
         finally:
             fresh = await self.s.store.get(case.id)
