@@ -72,7 +72,9 @@ At the end it prints the console URL (`SERVICE_API_ENDPOINT`).
 
 ### Choosing the models
 
-The defaults are `gpt-5-mini` (fast tier) and `claude-opus-5-5` (expert tier), both *Global Standard*. Check what
+The defaults are `gpt-5.4-mini` (fast tier) and `claude-opus-5-5` (expert tier), both *Global Standard*. For
+GPT-5-class fast models also set `SA_FAST_REASONING_EFFORT=low`. `DeepSeek-V4.1-Flash` is cheaper if your
+subscription has quota for it (`SA_FOUNDRY_FAST_MODEL=DeepSeek-V4.1-Flash`, `SA_FOUNDRY_FAST_FORMAT=DeepSeek`). Check what
 your subscription can deploy in the region, and its quota, before `azd up`:
 
 ```bash

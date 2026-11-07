@@ -35,6 +35,7 @@ param entraClientId string
 @secure()
 param entraClientSecret string
 param fastUseEntra bool = false
+param fastReasoningEffort string = ''
 @description('Product sandbox image in ACR (e.g. <acr>.azurecr.io/superagent-product:1). Empty = no product sandbox.')
 param productSandboxImage string = ''
 @description('Pre-warmed product sessions. Custom-container pools bill dedicated E16 nodes while any session is ready or active: keep 0 unless you accept that cost.')
@@ -194,6 +195,7 @@ var commonEnv = [
   { name: 'SA_FAST_BASE_URL', value: fastBaseUrl }
   { name: 'SA_FAST_MODEL', value: fastModel }
   { name: 'SA_FAST_USE_ENTRA', value: string(fastUseEntra) }
+  { name: 'SA_FAST_REASONING_EFFORT', value: fastReasoningEffort }
   { name: 'SA_EXPERT_PROVIDER', value: expertProvider }
   { name: 'SA_EXPERT_MODEL', value: expertModel }
   { name: 'SA_FOUNDRY_RESOURCE', value: foundryResource }

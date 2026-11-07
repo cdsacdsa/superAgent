@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     fast_base_url: str = "https://openrouter.ai/api/v1"
     fast_api_key: str = ""
     fast_use_entra: bool = False  # Foundry OpenAI-compatible endpoint with the managed identity (no key)
+    fast_reasoning_effort: str = ""  # sent as reasoning_effort when set (e.g. "low" for GPT-5-class models)
 
     # ---- LLM: expert tier (Claude Opus 5.5 via Claude API or Microsoft Foundry)
     expert_provider: Literal["anthropic", "foundry", "openai_compat", "fake"] = "anthropic"

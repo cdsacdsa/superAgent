@@ -190,3 +190,28 @@ def test_vm_setup_script_gets_installer_link():
     vm._installer_sas_url = lambda: vm.installer_blob_url + "?sig=abc"
     assert vm.render_setup_script() == ('Invoke-WebRequest -Uri "https://sbx.blob.core.windows.net/installers/'
                                         'product.msi?sig=abc" -OutFile x.msi')  # fmt: skip
+
+
+async def test_reasoning_models_get_max_completion_tokens_and_effort():
+    from openai import AsyncOpenAI
+
+    from superagent.llm.openai_compat import OpenAICompatProvider
+
+    bodies = []
+
+    def handler(req: httpx.Request):
+        body = json.loads(req.content)
+        bodies.append(body)
+        if "max_tokens" in body:
+            return httpx.Response(400, json={"error": {"message": "Unsupported parameter: 'max_tokens' is not supported "
+                                                       "with this model. Use 'max_completion_tokens' instead.",
+                                                       "type": "invalid_request_error", "param": "max_tokens"}})  # fmt: skip
+        return httpx.Response(200, json=_completion('{"a": 1}'))
+
+    client = AsyncOpenAI(api_key="x", base_url="https://res.services.ai.azure.com/openai/v1/", max_retries=0,
+                         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))  # fmt: skip
+    p = OpenAICompatProvider("fast", "gpt-5.4-mini", "", "x", None, client=client, reasoning_effort="low")
+    assert (await p.complete_json("s", "u", {}, "x"))[0] == {"a": 1}
+    assert (await p.complete_json("s", "u", {}, "x"))[0] == {"a": 1}
+    assert [("max_tokens" in b, b.get("max_completion_tokens"), b.get("reasoning_effort")) for b in bodies] == [
+        (True, None, "low"), (False, 4000, "low"), (False, 4000, "low")]  # the switch is remembered

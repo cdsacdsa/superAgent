@@ -21,6 +21,7 @@ There are two layers:
 | `SA_FAST_BASE_URL` | `https://openrouter.ai/api/v1` | Any OpenAI-compatible endpoint |
 | `SA_FAST_MODEL` | `deepseek/deepseek-v4.1-flash` | |
 | `SA_FAST_API_KEY` | | secret |
+| `SA_FAST_REASONING_EFFORT` | | Sent as `reasoning_effort` (e.g. `low` for GPT-5-class models); `max_completion_tokens` is used automatically when a model requires it |
 | `SA_FAST_USE_ENTRA` | `false` | Call a Foundry OpenAI-compatible endpoint with the managed identity instead of a key (set by Bicep when `SA_ENABLE_FOUNDRY=true`) |
 | `SA_EXPERT_PROVIDER` | `anthropic` | `anthropic` \| `foundry` \| `openai_compat` \| `fake` |
 | `SA_EXPERT_MODEL` | `claude-opus-5-5` | `anthropic/claude-opus-5.5` when using OpenRouter |

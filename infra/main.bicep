@@ -53,11 +53,13 @@ param entraClientId string = ''
 @allowed(['true', 'false'])
 param enableFoundry string = 'false'
 @description('Foundry deployments: name = model name; version empty = the model\'s default version.')
-param foundryFastModel string = 'gpt-5-mini'
+param foundryFastModel string = 'gpt-5.4-mini'
 param foundryFastModelFormat string = 'OpenAI'
 param foundryFastModelVersion string = ''
 param foundryFastSku string = 'GlobalStandard'
 param foundryFastCapacity int = 50
+@description('reasoning_effort for the fast tier (GPT-5-class models: low keeps it fast and cheap; empty = not sent).')
+param fastReasoningEffort string = ''
 param foundryExpertModel string = 'claude-opus-5-5'
 param foundryExpertModelFormat string = 'Anthropic'
 param foundryExpertModelVersion string = ''
@@ -221,6 +223,7 @@ module apps 'modules/apps.bicep' = {
     fastBaseUrl: foundryOn ? foundry!.outputs.openaiBaseUrl : fastBaseUrl
     fastModel: foundryOn ? foundry!.outputs.fastDeployment : fastModel
     fastUseEntra: foundryOn
+    fastReasoningEffort: fastReasoningEffort
     expertProvider: foundryOn ? 'foundry' : expertProvider
     expertModel: foundryOn ? foundry!.outputs.expertDeployment : expertModel
     foundryResource: foundryOn ? foundry!.outputs.name : foundryResource

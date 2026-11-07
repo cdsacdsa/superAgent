@@ -34,7 +34,8 @@ def build_llm(tier: str, provider: str, model: str, s: Settings, policy: AgentPo
         key = s.fast_api_key if tier == "fast" else (s.expert_api_key or s.fast_api_key)
         if tier == "fast" and s.fast_use_entra and not s.fast_api_key:
             key = azure_token_provider(s.azure_client_id)
-        return OpenAICompatProvider(tier, model, base_url, key, price)
+        effort = s.fast_reasoning_effort if tier == "fast" else ""
+        return OpenAICompatProvider(tier, model, base_url, key, price, reasoning_effort=effort)
     from .llm.anthropic_provider import AnthropicProvider, build_anthropic_client
 
     key = s.expert_api_key if tier == "expert" else s.fast_api_key

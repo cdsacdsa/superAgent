@@ -11,7 +11,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, BadRequestError
 
 from ..config import PriceEntry
 from ..models import Usage
@@ -39,8 +39,11 @@ class OpenAICompatProvider(LLMProvider):
         api_key: str | Callable[[], Awaitable[str]],
         price: PriceEntry | None,
         client: AsyncOpenAI | None = None,
+        reasoning_effort: str = "",
     ):
         super().__init__(tier, model, price)
+        self.reasoning_effort = reasoning_effort  # e.g. "low" for GPT-5-class reasoning models
+        self._limit_param = "max_tokens"  # switched to max_completion_tokens if the model asks for it
         headers = {}
         if "openrouter.ai" in (base_url or ""):
             headers = {"HTTP-Referer": "https://github.com/cdsacdsa/superAgent", "X-Title": "SuperAgent"}
@@ -51,6 +54,20 @@ class OpenAICompatProvider(LLMProvider):
             timeout=180,
             max_retries=3,
         )
+
+    async def _create(self, max_tokens: int, **kwargs: Any) -> Any:
+        """chat.completions.create that also works with reasoning models (GPT-5 class), which reject
+        ``max_tokens`` and count their reasoning against ``max_completion_tokens``."""
+        if self.reasoning_effort:
+            kwargs["reasoning_effort"] = self.reasoning_effort
+        limit = max_tokens * 2 if self._limit_param == "max_completion_tokens" else max_tokens
+        try:
+            return await self.client.chat.completions.create(model=self.model, **{self._limit_param: limit}, **kwargs)
+        except BadRequestError as e:
+            if self._limit_param == "max_tokens" and "max_completion_tokens" in str(e):
+                self._limit_param = "max_completion_tokens"
+                return await self._create(max_tokens, **kwargs)
+            raise
 
     def _usage(self, resp: Any) -> Usage:
         u = getattr(resp, "usage", None)
@@ -73,11 +90,10 @@ class OpenAICompatProvider(LLMProvider):
             f"{system}\n\nRespond with ONLY a JSON object that matches this JSON schema "
             f"(no prose, no code fences):\n{json.dumps(schema)}"
         )
-        resp = await self.client.chat.completions.create(
-            model=self.model,
+        resp = await self._create(
+            2000,
             messages=[{"role": "system", "content": sys}, {"role": "user", "content": user}],
             response_format={"type": "json_object"},
-            max_tokens=2000,
         )
         text = resp.choices[0].message.content or "{}"
         return parse_json_loose(text), self._usage(resp)
@@ -93,13 +109,7 @@ class OpenAICompatProvider(LLMProvider):
         for step in range(1, max_steps + 1):
             result.steps = step
             try:
-                resp = await self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    tools=self._tool_defs(tools),
-                    tool_choice="auto",
-                    max_tokens=4000,
-                )
+                resp = await self._create(4000, messages=messages, tools=self._tool_defs(tools), tool_choice="auto")
             except Exception as e:  # network / provider error -> let the router escalate
                 log.exception("fast-tier call failed")
                 result.error = f"{type(e).__name__}: {e}"
