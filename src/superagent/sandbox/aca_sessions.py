@@ -107,9 +107,13 @@ class AcaSessionsSandbox(Sandbox):
             return ExecResult(d.get("exit_code", -1), d.get("stdout", ""), d.get("stderr", ""),
                               int((time.monotonic() - t0) * 1000))  # fmt: skip
 
+        # Sessions send HTTP through an egress proxy (which answers 403); local services must bypass it.
         code = self.bootstrap + (
-            "import subprocess, json\n"
-            f"r = subprocess.run({json.dumps(command)}, shell=True, capture_output=True, text=True, timeout={int(timeout_s)})\n"
+            "import subprocess, json, os\n"
+            "env = dict(os.environ)\n"
+            "for k in ('no_proxy', 'NO_PROXY'):\n"
+            "    env[k] = ','.join(x for x in ('localhost', '127.0.0.1', env.get(k, '')) if x)\n"
+            f"r = subprocess.run({json.dumps(command)}, shell=True, capture_output=True, text=True, env=env, timeout={int(timeout_s)})\n"
             "print(json.dumps({'exit_code': r.returncode, 'stdout': r.stdout[-20000:], 'stderr': r.stderr[-8000:]}))\n"
         )
         r = await self.http.post(

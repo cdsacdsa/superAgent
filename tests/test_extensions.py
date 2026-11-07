@@ -301,3 +301,38 @@ async def test_requeue_only_open_cases(make_env):
     await env.store.save(case)
     assert not await env.orch.requeue("INC0010002")  # waiting for approval: left alone
     assert not await env.orch.requeue("NOPE")
+
+
+async def test_sandbox_commands_bypass_the_session_proxy_for_localhost():
+    from superagent.sandbox.aca_sessions import AcaSessionsSandbox
+
+    codes = []
+
+    def handler(req: httpx.Request):
+        codes.append(json.loads(req.content)["properties"]["code"])
+        out = json.dumps({"exit_code": 0, "stdout": "", "stderr": ""})
+        return httpx.Response(200, json={"properties": {"status": "Success", "stdout": out + "\n", "stderr": ""}})
+
+    async def tok():
+        return "tok"
+
+    sb = AcaSessionsSandbox("https://pool.example", "python", transport=httpx.MockTransport(handler), token_provider=tok)
+    await sb.exec("X", "curl -s localhost:3000/health", 30)
+    ns: dict = {}
+    exec(codes[0].split("r = subprocess.run")[0], ns)  # run only the env preparation
+    assert ns["env"]["no_proxy"].startswith("localhost,127.0.0.1") and "env=env" in codes[0]
+
+
+async def test_message_for_a_leased_case_is_retried_not_dropped(make_env):
+    env = make_env()
+    assert await env.orch.intake("INC0010002")
+    msg = env.queue.q.get_nowait()
+    assert await env.store.acquire("INC0010002", "a-worker-that-died")
+    sent = []
+
+    async def record(m, delay_s=0):
+        sent.append((m.ticket_id, delay_s))
+
+    env.queue.send = record
+    await env.orch.handle(msg)
+    assert sent == [("INC0010002", 60)]

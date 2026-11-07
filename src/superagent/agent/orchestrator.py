@@ -118,8 +118,9 @@ class Orchestrator:
             existing = await self.s.store.get(msg.ticket_id)
             if existing is None and msg.kind == "process_ticket":
                 await self.intake(msg.ticket_id, reason="queue")
-            elif existing is not None and msg.kind == "resume_case":
-                await self.s.queue.send(msg, delay_s=30)  # case busy: retry the resume shortly
+            elif existing is not None:
+                # leased by another worker (or by one that died: leases expire): retry instead of dropping it
+                await self.s.queue.send(msg, delay_s=30 if msg.kind == "resume_case" else 60)
             return
         try:
             await self._process(case, msg)
