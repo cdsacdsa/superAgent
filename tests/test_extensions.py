@@ -252,3 +252,38 @@ async def test_memory_queue_redelivers_failed_messages_after_a_delay():
     assert q.q.empty()
     await asyncio.sleep(0.1)
     assert q.q.get_nowait().ticket_id == "X"
+
+
+async def test_file_product_is_started_in_the_code_interpreter_session():
+    from superagent.sandbox.aca_sessions import AcaSessionsSandbox
+
+    codes = []
+
+    def handler(req: httpx.Request):
+        codes.append(json.loads(req.content)["properties"]["code"])
+        out = json.dumps({"exit_code": 0, "stdout": "500", "stderr": ""})
+        return httpx.Response(200, json={"properties": {"status": "Success", "stdout": out + "\n", "stderr": ""}})
+
+    async def tok():
+        return "tok"
+
+    sb = AcaSessionsSandbox("https://pool.example", "python", transport=httpx.MockTransport(handler), token_provider=tok,
+                            bootstrap_files={"app.py": "print('hi')"}, start_cmd="python3 app.py")  # fmt: skip
+    res = await sb.exec("INC0010005", "curl -s -o /dev/null -w %{http_code} localhost:3000/export.csv", 30)
+    assert res.stdout == "500"
+    code = codes[0]
+    assert code.index("if not _sa_up():") < code.index("subprocess.run")  # product checked/started first
+    assert "'python3 app.py'" in code and "connect(('127.0.0.1', 3000))" in code
+    compile(code, "session", "exec")  # the generated code is valid Python
+
+
+def test_product_target_uses_code_interpreter_when_no_product_pool():
+    from superagent.config import AgentPolicy
+    from superagent.container import FILE_PRODUCT_NOTES, build_sandbox, product_notes
+
+    s = Settings(sandbox_provider="aca_sessions", aca_pool_endpoint="https://pool.example",
+                 product_bootstrap_dir=str(ROOT / "sandbox" / "product" / "demo_app"))  # fmt: skip
+    sb = build_sandbox(s, AgentPolicy())
+    assert set(sb.targets) == {"linux", "product"}
+    assert "app.py" in sb.by_target["product"].bootstrap or "YXBw" in sb.by_target["product"].bootstrap
+    assert product_notes(s) == FILE_PRODUCT_NOTES

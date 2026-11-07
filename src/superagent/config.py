@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     aca_pool_type: Literal["python", "custom"] = "python"
     # "product" target: a custom-container pool (or local Docker image) running the product under test
     aca_product_pool_endpoint: str = ""
+    # cheaper alternative to a product pool: copy these files into the code-interpreter session and start them
+    product_bootstrap_dir: str = ""  # e.g. /app/sandbox/product/demo_app
+    product_start_cmd: str = "python3 app.py"
     docker_product_image: str = ""
     product_sandbox_notes: str = (
         "the product under test runs inside this sandbox at http://localhost:3000 (logs in /tmp/product/); "

@@ -76,8 +76,10 @@ param searchSku string = 'free'
 @description('The deploying user (azd sets AZURE_PRINCIPAL_ID): gets data roles to ingest docs and upload installers.')
 param principalId string = ''
 
-@description('Product sandbox image in ACR (see scripts/build-product-image). Empty = no "product" sandbox target.')
+@description('Product sandbox image in ACR (see scripts/build-product-image). Creates a custom-container pool: one dedicated node is billed around the clock. Empty = none.')
 param productSandboxImage string = ''
+@description('Cheaper product sandbox: files in the app image copied into the code-interpreter session, e.g. /app/sandbox/product/demo_app.')
+param productBootstrapDir string = ''
 
 @description('Confluence + Jira knowledge (Atlassian Cloud site, read-only user).')
 param atlassianBaseUrl string = ''
@@ -238,6 +240,7 @@ module apps 'modules/apps.bicep' = {
     expertModel: foundryOn ? foundry!.outputs.expertDeployment : expertModel
     foundryResource: foundryOn ? foundry!.outputs.name : foundryResource
     productSandboxImage: productSandboxImage
+    productBootstrapDir: productBootstrapDir
     atlassianBaseUrl: atlassianBaseUrl
     atlassianUser: atlassianUser
     confluenceEnabled: confluenceEnabled == 'true'

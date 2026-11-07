@@ -38,8 +38,11 @@ param fastUseEntra bool = false
 param fastReasoningEffort string = ''
 @description('Product sandbox image in ACR (e.g. <acr>.azurecr.io/superagent-product:1). Empty = no product sandbox.')
 param productSandboxImage string = ''
-@description('Pre-warmed product sessions. Custom-container pools bill dedicated E16 nodes while any session is ready or active: keep 0 unless you accept that cost.')
-param productReadySessions int = 0
+@description('Custom-container pools need at least 1 ready session and run on dedicated E16 nodes, so one node is billed around the clock while the pool exists.')
+@minValue(1)
+param productReadySessions int = 1
+@description('Cheaper product sandbox: directory (inside the app image) whose files are copied into the code-interpreter session and started.')
+param productBootstrapDir string = ''
 param atlassianBaseUrl string = ''
 param atlassianUser string = ''
 param confluenceEnabled bool = false
@@ -185,6 +188,7 @@ var commonEnv = [
   { name: 'SA_ACA_POOL_ENDPOINT', value: pool.properties.poolManagementEndpoint }
   { name: 'SA_ACA_POOL_TYPE', value: 'python' }
   { name: 'SA_ACA_PRODUCT_POOL_ENDPOINT', value: empty(productSandboxImage) ? '' : productPool!.properties.poolManagementEndpoint }
+  { name: 'SA_PRODUCT_BOOTSTRAP_DIR', value: productBootstrapDir }
   { name: 'SA_VM_INSTALLER_BLOB_URL', value: vmInstallerBlobUrl }
   { name: 'SA_VM_SETUP_SCRIPT', value: vmSetupScript }
   { name: 'SA_VM_SUBSCRIPTION_ID', value: subscription().subscriptionId }

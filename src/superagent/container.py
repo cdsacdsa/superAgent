@@ -119,6 +119,10 @@ def build_sandbox(s: Settings, policy: AgentPolicy) -> SandboxRouter | None:
         by_target["linux"] = AcaSessionsSandbox(s.aca_pool_endpoint, s.aca_pool_type, s.azure_client_id)
         if s.aca_product_pool_endpoint:
             by_target["product"] = AcaSessionsSandbox(s.aca_product_pool_endpoint, "custom", s.azure_client_id)
+        elif s.product_bootstrap_dir and s.aca_pool_type == "python":
+            by_target["product"] = AcaSessionsSandbox(s.aca_pool_endpoint, "python", s.azure_client_id,
+                                                      bootstrap_files=_read_tree(s.product_bootstrap_dir),
+                                                      start_cmd=s.product_start_cmd)  # fmt: skip
     # The VM sandbox can be combined with any of the above (adds the windows target).
     if s.vm_resource_group and s.vm_subnet_id:
         from pathlib import Path
@@ -189,10 +193,38 @@ def build_services(settings: Settings | None = None, policy: AgentPolicy | None 
         base_url=s.public_base_url.rstrip("/"),
         worker_id=f"{socket.gethostname()}-{os.getpid()}",
         kedb_writer=kedb,
-        sandbox_notes={"product": s.product_sandbox_notes},
+        sandbox_notes={"product": product_notes(s)},
         mcp=overrides.pop("mcp") if "mcp" in overrides else build_mcp(policy),
     )
     return services
+
+
+FILE_PRODUCT_NOTES = (
+    "the product under test runs inside this sandbox at http://localhost:3000 (logs in /tmp/product/); "
+    "there is no browser here: request its pages and endpoints with curl or python urllib"
+)
+
+
+def product_notes(s: Settings) -> str:
+    file_mode = s.product_bootstrap_dir and not s.aca_product_pool_endpoint and not s.docker_product_image
+    if file_mode and "product_sandbox_notes" not in s.model_fields_set:
+        return FILE_PRODUCT_NOTES
+    return s.product_sandbox_notes
+
+
+def _read_tree(root: str, max_bytes: int = 1_000_000) -> dict[str, str]:
+    """Text files under ``root`` (relative path -> content) for a product bootstrap."""
+    from pathlib import Path
+
+    base, files, total = Path(root), {}, 0
+    for p in sorted(base.rglob("*")):
+        if p.is_file() and "__pycache__" not in p.parts:
+            text = p.read_text(encoding="utf-8")
+            total += len(text)
+            if total > max_bytes:
+                raise ValueError(f"product files under {root} exceed {max_bytes} bytes: use a product pool instead")
+            files[p.relative_to(base).as_posix()] = text
+    return files
 
 
 def build_mcp(policy: AgentPolicy) -> McpToolBridge | None:

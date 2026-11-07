@@ -8,11 +8,17 @@ Two pool types are supported:
   through ``subprocess`` inside the session.
 * ``custom``: our own image from ``sandbox/`` (troubleshooting tools + a tiny exec API).
 
+A product that runs from plain files (e.g. the demo in ``sandbox/product/demo_app``) can also be
+brought into a ``python`` session: pass ``bootstrap_files`` and ``start_cmd`` and every command
+first makes sure the product is listening on ``port`` (copying the files and starting it if not).
+That costs a code-interpreter session instead of a custom pool's always-on dedicated node.
+
 The worker's managed identity needs the role *Azure ContainerApps Session Executor* on the pool.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import time
@@ -29,14 +35,44 @@ def _safe_identifier(session_id: str) -> str:
     return re.sub(r"[^a-zA-Z0-9-]", "-", session_id).lower()[:100]
 
 
+def bootstrap_code(files: dict[str, str], start_cmd: str, port: int, app_dir: str = "/mnt/data/product") -> str:
+    """Python run before each command: start the product if nothing listens on ``port``."""
+    payload = {rel: base64.b64encode(text.encode()).decode() for rel, text in files.items()}
+    return (
+        "import base64 as _b, os as _o, socket as _s, subprocess as _p, time as _t\n"
+        "def _sa_up():\n"
+        "    c = _s.socket(); c.settimeout(0.3)\n"
+        "    try:\n"
+        f"        c.connect(('127.0.0.1', {port})); return True\n"
+        "    except OSError:\n"
+        "        return False\n"
+        "    finally:\n"
+        "        c.close()\n"
+        "if not _sa_up():\n"
+        f"    for _rel, _data in {json.dumps(payload)}.items():\n"
+        f"        _path = _o.path.join({app_dir!r}, _rel); _o.makedirs(_o.path.dirname(_path), exist_ok=True)\n"
+        "        open(_path, 'wb').write(_b.b64decode(_data))\n"
+        "    _o.makedirs('/tmp/product', exist_ok=True)\n"
+        f"    _p.Popen({start_cmd!r}, shell=True, cwd={app_dir!r}, start_new_session=True,\n"
+        f"             env=dict(_o.environ, PORT='{port}', PRODUCT_LOG_DIR='/tmp/product'),\n"
+        "             stdout=open('/tmp/product/stdout.log', 'ab'), stderr=_p.STDOUT)\n"
+        "    for _ in range(50):\n"
+        "        if _sa_up():\n"
+        "            break\n"
+        "        _t.sleep(0.1)\n"
+    )
+
+
 class AcaSessionsSandbox(Sandbox):
     name = "aca_sessions"
     targets = ("linux",)
 
     def __init__(self, pool_endpoint: str, pool_type: str = "python", mi_client_id: str = "",
-                 transport: httpx.AsyncBaseTransport | None = None, token_provider=None):  # fmt: skip
+                 transport: httpx.AsyncBaseTransport | None = None, token_provider=None,
+                 bootstrap_files: dict[str, str] | None = None, start_cmd: str = "", port: int = 3000):  # fmt: skip
         self.endpoint = pool_endpoint.rstrip("/")
         self.pool_type = pool_type
+        self.bootstrap = bootstrap_code(bootstrap_files, start_cmd, port) if bootstrap_files and start_cmd else ""
         self.mi_client_id = mi_client_id
         self._token_provider = token_provider
         self._cred = None
@@ -71,7 +107,7 @@ class AcaSessionsSandbox(Sandbox):
             return ExecResult(d.get("exit_code", -1), d.get("stdout", ""), d.get("stderr", ""),
                               int((time.monotonic() - t0) * 1000))  # fmt: skip
 
-        code = (
+        code = self.bootstrap + (
             "import subprocess, json\n"
             f"r = subprocess.run({json.dumps(command)}, shell=True, capture_output=True, text=True, timeout={int(timeout_s)})\n"
             "print(json.dumps({'exit_code': r.returncode, 'stdout': r.stdout[-20000:], 'stderr': r.stderr[-8000:]}))\n"

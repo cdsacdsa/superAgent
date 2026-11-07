@@ -38,6 +38,7 @@
     "searchSku": { "value": "${SA_SEARCH_SKU=free}" },
     "principalId": { "value": "${AZURE_PRINCIPAL_ID=}" },
     "productSandboxImage": { "value": "${SA_PRODUCT_SANDBOX_IMAGE=}" },
+    "productBootstrapDir": { "value": "${SA_PRODUCT_BOOTSTRAP_DIR=}" },
     "atlassianBaseUrl": { "value": "${SA_ATLASSIAN_BASE_URL=}" },
     "atlassianUser": { "value": "${SA_ATLASSIAN_USER=}" },
     "confluenceEnabled": { "value": "${SA_CONFLUENCE_ENABLED=false}" },
