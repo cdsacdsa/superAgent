@@ -121,8 +121,14 @@ class Worker:
 
 
 async def main():
+    import os
+
     settings = get_settings()
     setup_observability(settings, "superagent-worker")
+    if os.environ.get("SA_WORKER_IDLE", "").lower() == "true":
+        # Demo mode (mock ITSM): the API container runs the worker in-process.
+        log.info("demo mode: worker idle (the API runs the worker in-process)")
+        await asyncio.Event().wait()
     orch = build_orchestrator()
     await Worker(orch, settings.worker_concurrency, settings.poll_enabled).run()
 

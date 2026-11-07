@@ -44,7 +44,7 @@ class DockerSandbox(Sandbox):
         net = "none" if network == "none" else "bridge"
         rc, _, err = await self._run(
             "docker", "run", "-d", "--rm", "--name", name, f"--network={net}",
-            "--read-only", "--tmpfs", "/tmp:rw,size=256m", "--tmpfs", "/work:rw,size=256m",
+            "--read-only", "--tmpfs", "/tmp:rw,size=256m,mode=1777", "--tmpfs", "/work:rw,size=256m,uid=65534,gid=65534",
             "--cap-drop=ALL", "--security-opt=no-new-privileges", "--memory=512m", "--cpus=1",
             "--pids-limit=128", "--user=65534:65534", "-w", "/work",
             image, "sleep", "7200", timeout=180,

@@ -1,0 +1,29 @@
+# Azure Developer CLI: `azd up` provisions infra/ and deploys both container apps.
+name: superagent
+metadata:
+  template: superagent@1.0.0
+infra:
+  provider: bicep
+  path: infra
+  module: main
+services:
+  api:
+    project: .
+    language: py
+    host: containerapp
+    docker:
+      path: Dockerfile
+      remoteBuild: true   # builds in Azure Container Registry (no local Docker needed)
+  worker:
+    project: .
+    language: py
+    host: containerapp
+    docker:
+      path: Dockerfile
+      remoteBuild: true
+hooks:
+  postprovision:
+    posix:
+      shell: sh
+      run: ./scripts/postprovision.sh
+      continueOnError: true

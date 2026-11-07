@@ -1,0 +1,8 @@
+.git
+.venv
+.azure
+**/__pycache__
+*.db
+tests
+docs
+infra
