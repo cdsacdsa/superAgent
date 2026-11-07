@@ -51,9 +51,9 @@ param jiraKbEnabled bool = false
 param jiraKbProjects string = ''
 param vmInstallerBlobUrl string = ''
 param vmSetupScript string = ''
-@description('Images azd deployed last time; keeps re-provisioning from resetting the apps to the placeholder.')
-param apiImage string = ''
-param workerImage string = ''
+@description('Set by azd once the apps exist (SERVICE_*_RESOURCE_EXISTS): re-provisioning keeps the running images.')
+param apiExists bool = false
+param workerExists bool = false
 
 // Demo mode (mock ITSM): the mock ticket system lives in memory, so the API runs the worker in-process.
 var demoMode = itsmProvider == 'mock'
@@ -140,6 +140,16 @@ resource productPoolRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
     principalType: 'ServicePrincipal'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', sessionExecutorRole)
   }
+}
+
+module apiImageNow 'existing-image.bicep' = {
+  name: 'api-image-now'
+  params: { name: apiName, exists: apiExists }
+}
+
+module workerImageNow 'existing-image.bicep' = {
+  name: 'worker-image-now'
+  params: { name: workerName, exists: workerExists }
 }
 
 // ---------------- shared app configuration
@@ -245,7 +255,7 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
       containers: [
         {
           name: 'api'
-          image: empty(apiImage) ? placeholderImage : apiImage
+          image: empty(apiImageNow.outputs.image) ? placeholderImage : apiImageNow.outputs.image
           resources: { cpu: json('1.0'), memory: '2Gi' }
           env: concat(commonEnv, secretEnv, [
             { name: 'SA_RUN_WORKER_INPROC', value: string(demoMode) }
@@ -279,7 +289,7 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
       containers: [
         {
           name: 'worker'
-          image: empty(workerImage) ? placeholderImage : workerImage
+          image: empty(workerImageNow.outputs.image) ? placeholderImage : workerImageNow.outputs.image
           command: ['python', '-m', 'superagent.worker']
           resources: { cpu: json('1.0'), memory: '2Gi' }
           env: concat(commonEnv, secretEnv, [
@@ -331,6 +341,8 @@ resource auth 'Microsoft.App/containerApps/authConfigs@2025-01-01' = if (!empty(
 }
 
 output apiUrl string = 'https://${api.properties.configuration.ingress.fqdn}'
+output apiName string = api.name
+output workerName string = worker.name
 output sessionPoolEndpoint string = pool.properties.poolManagementEndpoint
 
 output productPoolEndpoint string = empty(productSandboxImage) ? '' : productPool!.properties.poolManagementEndpoint

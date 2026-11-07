@@ -386,6 +386,68 @@ In Application Insights, create alerts for:
 
 ---
 
+## Running with nothing on your machine
+
+After the first `azd up`, everything can run in Azure and GitHub.
+
+**Deploys (GitHub Actions).** `.github/workflows/deploy.yml` runs on every push to the default branch: tests,
+image build on GitHub's runner, push to ACR, rollout of the api and worker, health check. No local Docker and no
+ACR Tasks (which Free Trial subscriptions block). It signs in with OpenID Connect as a **deploy-only** managed
+identity: AcrPush and Reader on the registry, Container Apps Contributor on the two apps, nothing else. Create
+it once:
+
+```bash
+azd env set SA_GITHUB_REPO <owner>/<repo>
+```
+
+```bash
+azd env set SA_GITHUB_BRANCH <default branch>
+```
+
+```bash
+azd provision
+```
+
+Put the output `GITHUB_DEPLOY_CLIENT_ID`, your tenant and subscription IDs, the registry, resource group and app
+names in the workflow's `env` defaults or in repository variables of the same names. None of them is a secret:
+Azure only issues tokens to workflows running on that branch of that repository.
+
+**Infrastructure changes (Azure Cloud Shell).** The deploy identity cannot provision, so infra changes stay with a
+human. The azd environment (settings and secrets) lives in Azure Blob Storage (`AZD_STATE_ACCOUNT`, container
+`azd-state`, Entra-only access for the admin), so Cloud Shell sees the same environment. In
+[Cloud Shell](https://shell.azure.com) (Bash):
+
+```bash
+git clone https://github.com/cdsacdsa/superAgent && cd superAgent
+```
+
+```bash
+azd config set auth.useAzCliAuth true
+```
+
+```bash
+azd config set state.remote.backend AzureBlobStorage
+```
+
+```bash
+azd config set state.remote.config.accountName "<AZD_STATE_ACCOUNT>"
+```
+
+```bash
+azd config set state.remote.config.containerName azd-state
+```
+
+```bash
+azd env select superagent-dev
+```
+
+```bash
+azd provision
+```
+
+Re-provisioning keeps the images the apps are running (`SERVICE_*_RESOURCE_EXISTS`), so it never rolls back a
+deploy. Use `azd env set ...` in Cloud Shell to change settings; they are saved to the same remote state.
+
 ## Deploying without azd
 
 ```bash

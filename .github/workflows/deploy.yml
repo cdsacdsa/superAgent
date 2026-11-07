@@ -1,0 +1,81 @@
+# Build the app image on GitHub's runners and roll it out to Azure Container Apps.
+# Nothing runs on a developer machine: no local Docker and no ACR Tasks (Free Trial subscriptions block them).
+#
+# Auth: OpenID Connect as the deploy-only identity created by infra/modules/cloud-ops.bicep (set SA_GITHUB_REPO
+# and SA_GITHUB_BRANCH, then azd provision). It can push images and update the two apps, nothing else.
+# The values below are defaults for this repo's deployment; override them with repository variables of the
+# same name. None of them is a secret: tokens are only issued to workflows running on the configured branch.
+name: deploy
+
+on:
+  push:
+    branches: [claude/wonderful-volta-89556v]
+    paths-ignore: ["docs/**", "**/*.md"]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID || 'cde85418-cf85-4626-b7dd-3355ac0d606f' }}
+  AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID || 'bd683bd4-767b-4b2f-9f17-00edc968d02f' }}
+  AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID || '977536d8-63cc-4422-988f-88f9dac46e6c' }}
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-superagent-dev' }}
+  ACR_NAME: ${{ vars.ACR_NAME || 'crsuperagentdidmusshbaqcvq' }}
+  API_APP: ${{ vars.API_APP || 'ca-superagent-d-api' }}
+  WORKER_APP: ${{ vars.WORKER_APP || 'ca-superagent-d-worker' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[azure,dev]"
+      - run: ruff check src tests
+      - run: pytest -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push the image
+        run: |
+          az acr login --name "$ACR_NAME"
+          IMAGE="$ACR_NAME.azurecr.io/superagent/app:${GITHUB_SHA::12}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Roll out the api and worker
+        run: |
+          az config set extension.use_dynamic_install=yes_without_prompt
+          for app in "$API_APP" "$WORKER_APP"; do
+            az containerapp update -g "$AZURE_RESOURCE_GROUP" -n "$app" --image "$IMAGE" -o none
+          done
+
+      - name: Wait for the new api revision and check health
+        run: |
+          for i in $(seq 1 30); do
+            ready=$(az containerapp show -g "$AZURE_RESOURCE_GROUP" -n "$API_APP" \
+              --query "properties.latestReadyRevisionName == properties.latestRevisionName" -o tsv)
+            [ "$ready" = "true" ] && break
+            sleep 10
+          done
+          URL="https://$(az containerapp show -g "$AZURE_RESOURCE_GROUP" -n "$API_APP" --query properties.configuration.ingress.fqdn -o tsv)"
+          for i in $(seq 1 12); do curl -fsS "$URL/healthz" && exit 0; sleep 10; done
+          echo "health check failed: $URL/healthz" && exit 1

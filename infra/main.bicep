@@ -94,9 +94,13 @@ param jiraKbProjects string = ''
 @description('Windows sandbox VMs: installer blob (in the sandbox storage account) and setup script path inside the image.')
 param vmInstallerBlobUrl string = ''
 param vmSetupScript string = ''
-@description('Set by azd after the first deploy (SERVICE_*_IMAGE_NAME).')
-param apiImage string = ''
-param workerImage string = ''
+@description('GitHub repo (owner/name) and branch whose workflow may build and roll out the apps (deploy-only). Empty = none.')
+param githubRepo string = ''
+param githubBranch string = 'main'
+
+@description('Set by azd once the apps exist (SERVICE_*_RESOURCE_EXISTS).')
+param apiExists bool = false
+param workerExists bool = false
 
 // ---------------- secrets (stored in Key Vault, never in app settings)
 @secure()
@@ -252,8 +256,8 @@ module apps 'modules/apps.bicep' = {
     jiraKbProjects: jiraKbProjects
     vmInstallerBlobUrl: vmInstallerBlobUrl
     vmSetupScript: vmSetupScript
-    apiImage: apiImage
-    workerImage: workerImage
+    apiExists: apiExists
+    workerExists: workerExists
     servicenowInstance: servicenowInstance
     servicenowUser: servicenowUser
     jiraBaseUrl: jiraBaseUrl
@@ -265,6 +269,23 @@ module apps 'modules/apps.bicep' = {
     vmSubnetId: vmSandbox ? sandboxNet!.outputs.subnetId : ''
     entraClientId: entraClientId
     entraClientSecret: entraClientSecret
+  }
+}
+
+module cloudOps 'modules/cloud-ops.bicep' = {
+  name: 'cloud-ops'
+  scope: rg
+  params: {
+    location: location
+    tags: tags
+    prefix: prefix
+    token: token
+    githubRepo: githubRepo
+    githubBranch: githubBranch
+    registryName: core.outputs.registryName
+    apiName: apps.outputs.apiName
+    workerName: apps.outputs.workerName
+    stateUserPrincipalId: principalId
   }
 }
 
@@ -282,3 +303,8 @@ output PRODUCT_POOL_ENDPOINT string = apps.outputs.productPoolEndpoint
 output AZURE_SEARCH_ENDPOINT string = core.outputs.searchEndpoint
 output AZURE_FOUNDRY_NAME string = foundryOn ? foundry!.outputs.name : ''
 output SANDBOX_INSTALLERS_URL string = vmSandbox ? sandboxNet!.outputs.installersUrl : ''
+output GITHUB_DEPLOY_CLIENT_ID string = cloudOps.outputs.deployClientId
+output AZD_STATE_ACCOUNT string = cloudOps.outputs.stateAccountName
+output AZD_STATE_CONTAINER string = cloudOps.outputs.stateContainerName
+output SERVICE_API_NAME string = apps.outputs.apiName
+output SERVICE_WORKER_NAME string = apps.outputs.workerName
