@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ c.id }} · SuperAgent{% endblock %}
+{% block body %}
+<div class="card">
+  <h2 style="margin-top:0">{{ c.id }} · {{ c.ticket.title }}</h2>
+  <p>
+    <span class="chip s-{{ c.status.value }}">{{ c.status.value.replace('_',' ') }}</span>
+    {% if c.triage %}<span class="chip">{{ PRIORITY_LABEL[c.triage.priority] }}</span>
+    <span class="chip">{{ c.triage.ticket_type.value }} / {{ c.triage.category }}</span>
+    <span class="chip">complexity {{ c.triage.complexity }}/5</span>{% endif %}
+    <span class="chip sla-{{ sla }}">SLA {{ sla.replace('_',' ') }}</span>
+    <span class="chip">AI cost ${{ "%.4f"|format(c.total_cost) }}</span>
+    <span class="chip">tiers: {{ c.tiers_used|join(' → ') or '–' }}</span>
+    {% if c.ticket.url %}<a href="{{ c.ticket.url }}" target="_blank" rel="noopener">open in ITSM ↗</a>{% endif %}
+  </p>
+  <pre>{{ c.ticket.description }}</pre>
+</div>
+
+{% for h in c.help_requests if not h.answered_at %}
+<div class="card" id="help-{{ h.id }}" style="border-color:var(--accent)">
+  <h3 style="margin-top:0">{% if h.kind == 'approval' %}✅ Approval needed{% else %}🙋 The agent needs help{% endif %}
+    <span class="chip">{{ h.urgency }}</span></h3>
+  <pre>{{ h.question }}{% if h.context %}
+
+{{ h.context }}{% endif %}</pre>
+  <form method="post" action="/cases/{{ c.id }}/help/{{ h.id }}">
+    <p><textarea name="answer" rows="3" placeholder="{% if h.kind == 'approval' %}Optional comment (required for 'reject & re-investigate'){% else %}Your answer{% endif %}"></textarea></p>
+    {% if h.kind == 'approval' %}
+      <button name="decision" value="approve">Approve</button>
+      <button name="decision" value="reject" class="danger">Reject</button>
+    {% else %}
+      <button name="decision" value="answer">Send answer</button>
+    {% endif %}
+  </form>
+</div>
+{% endfor %}
+
+<div class="grid2">
+<div class="card">
+  <h3 style="margin-top:0">Case file</h3>
+  {% if c.triage %}<p class="muted">{{ c.triage.summary }}</p>{% endif %}
+  {% for f in c.findings %}<div><span class="chip">{{ f.kind }}</span> <span class="muted">{{ f.tier }}</span> {{ f.text }}
+    {% if f.evidence %}<pre>{{ f.evidence }}</pre>{% endif %}</div>{% else %}<p class="muted">No findings yet.</p>{% endfor %}
+  {% for o in c.outcomes %}
+  <h4>Conclusion · {{ o.tier }} tier · {{ o.status.value }} ({{ "%.2f"|format(o.confidence) }})</h4>
+  {% if o.root_cause %}<p><b>Root cause:</b> {{ o.root_cause }}</p>{% endif %}
+  {% if o.resolution_steps %}<ol>{% for s in o.resolution_steps %}<li>{{ s }}</li>{% endfor %}</ol>{% endif %}
+  {% if o.work_note %}<p class="muted">{{ o.work_note }}</p>{% endif %}
+  {% if o.customer_message %}<details><summary>Message to requester</summary><pre>{{ o.customer_message }}</pre></details>{% endif %}
+  {% if o.kb_citations %}<p class="muted">Sources: {{ o.kb_citations|join(', ') }}</p>{% endif %}
+  {% endfor %}
+  {% for rfc in c.change_drafts %}<h4>Draft RFC: {{ rfc.title }}</h4><pre>{{ rfc }}</pre>{% endfor %}
+  {% if c.handover_note %}<h4>Handover note</h4><pre>{{ c.handover_note }}</pre>{% endif %}
+</div>
+<div class="card">
+  <h3 style="margin-top:0">Sandbox</h3>
+  {% for r in c.sandbox_runs %}
+    <div><code>{{ r.command }}</code> <span class="muted">({{ r.target }}, {{ r.purpose }})</span>
+    {% if not r.allowed %}<span class="chip" style="color:var(--bad)">blocked: {{ r.reason }}</span>
+    {% else %}<pre>exit {{ r.exit_code }} · {{ r.duration_ms }} ms
+{{ r.stdout }}{% if r.stderr %}
+--- stderr ---
+{{ r.stderr }}{% endif %}</pre>{% endif %}</div>
+  {% else %}<p class="muted">No sandbox commands.</p>{% endfor %}
+  <h3>Answered requests</h3>
+  {% for h in c.help_requests if h.answered_at %}
+    <p><b>Q:</b> {{ h.question }}<br><b>A ({{ h.answered_by }}):</b> {{ h.answer }} {% if h.approved is not none %}<span class="chip">{{ 'approved' if h.approved else 'rejected' }}</span>{% endif %}</p>
+  {% else %}<p class="muted">None.</p>{% endfor %}
+</div>
+</div>
+
+<div class="card overflow">
+  <h3 style="margin-top:0">Timeline (audit trail)</h3>
+  <table><tbody>
+  {% for e in events %}
+  <tr><td class="muted" style="white-space:nowrap">{{ e.at.strftime('%m-%d %H:%M:%S') }}</td><td><span class="chip">{{ e.type }}</span></td><td>{{ e.message }}</td></tr>
+  {% endfor %}
+  </tbody></table>
+</div>
+{% endblock %}

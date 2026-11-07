@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="kpis">
+  <div class="kpi"><b>{{ m.open }}</b><span>Open in agent</span></div>
+  <div class="kpi"><b>{{ m.resolved_by_agent }}</b><span>Resolved by agent</span></div>
+  <div class="kpi"><b>{{ m.handed_over }}</b><span>Handed over</span></div>
+  <div class="kpi"><b>{% if m.auto_resolution_rate is not none %}{{ (m.auto_resolution_rate*100)|round|int }}%{% else %}–{% endif %}</b><span>Auto-resolution rate</span></div>
+  <div class="kpi"><b>{{ m.waiting_human }}</b><span>Waiting for a human</span></div>
+  <div class="kpi"><b>${{ "%.3f"|format(m.ai_cost_usd_per_case) }}</b><span>AI cost / case</span></div>
+</div>
+<div class="card overflow">
+<table>
+<thead><tr><th>Ticket</th><th>Title</th><th>Priority</th><th>Status</th><th class="hide-sm">Tier</th><th class="hide-sm">SLA</th><th class="hide-sm">Cost</th><th class="hide-sm">Updated</th></tr></thead>
+<tbody>
+{% for c in cases %}
+<tr>
+  <td><a href="/cases/{{ c.id }}">{{ c.id }}</a></td>
+  <td>{{ c.ticket.title[:90] }}{% if c.pending_help %} <span class="chip">🙋 {{ c.pending_help|length }}</span>{% endif %}</td>
+  <td>{% if c.triage %}P{{ c.triage.priority }}{% else %}–{% endif %}</td>
+  <td class="s-{{ c.status.value }}">{{ c.status.value.replace('_',' ') }}</td>
+  <td class="hide-sm">{{ c.tiers_used|join(' → ') or '–' }}</td>
+  <td class="hide-sm sla-{{ sla[c.id] }}">{{ sla[c.id].replace('_',' ') }}</td>
+  <td class="hide-sm">${{ "%.4f"|format(c.total_cost) }}</td>
+  <td class="hide-sm muted">{{ c.updated_at.strftime('%m-%d %H:%M') }}</td>
+</tr>
+{% else %}
+<tr><td colspan="8" class="muted">No cases yet. The poller checks the assignment groups {{ policy.itil.assignment_groups|join(', ') }} every {{ policy.poll_interval_seconds }}s.</td></tr>
+{% endfor %}
+</tbody></table>
+</div>
+{% if is_mock %}
+<div class="card">
+<h3>Create a test ticket (mock ITSM)</h3>
+<form method="post" action="/ui/new-ticket">
+<p><input type="text" name="title" placeholder="Title, e.g. Teams calls drop after 30 seconds" required></p>
+<p><textarea name="description" rows="3" placeholder="Description"></textarea></p>
+<button>Submit ticket</button>
+</form>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,56 @@
+# SuperAgent behaviour policy. Change these without redeploying infrastructure
+# (in Azure: mount/replace this file or bake it into the image).
+
+agent_name: SuperAgent
+poll_interval_seconds: 60
+knowledge_top_k: 5
+
+routing:
+  expert_enabled: true            # Claude Opus 5.5 as second opinion before a human
+  expert_direct_complexity: 5     # complexity >= this goes straight to the expert tier
+  p1_expert_first: true           # P1 / Major Incidents start on the expert tier
+  min_confidence: 0.7             # below this the fast tier escalates
+  fast_max_steps: 14
+  expert_max_steps: 20
+  expert_effort: high             # low | medium | high | xhigh | max
+  per_ticket_budget_usd: 3.0
+  daily_expert_budget_usd: 50.0
+  expert_server_side_fallback: true   # Claude API only: refusal fallback to another model
+
+resolution:
+  auto_resolve: false             # Phase 0 (shadow): every resolution needs human approval
+  auto_resolve_threshold: 0.85
+  auto_resolve_max_priority: 3    # only P3/P4 can be auto-resolved
+  auto_resolve_types: [incident, service_request]
+  auto_resolve_categories: []     # e.g. [email, endpoint, access]; empty = any
+  post_customer_updates: true
+
+itil:
+  assignment_groups: [SuperAgent]
+  handover_group: L3 Support
+  security_group: Security Operations
+  major_incident_group: Major Incident Management
+  sla_minutes:                    # response / resolution targets per priority
+    "1": {response: 15, resolution: 240}
+    "2": {response: 30, resolution: 480}
+    "3": {response: 240, resolution: 1440}
+    "4": {response: 480, resolution: 4320}
+  sla_warning_ratio: 0.75
+  problem_threshold: 3
+  problem_window_hours: 72
+  auto_create_problem: false
+  requester_timeout_hours: 72
+  digest_hour_utc: 7
+
+sandbox:
+  max_runtime_seconds: 120
+  max_output_chars: 12000
+  network_requires_approval: true
+  vm_ttl_minutes: 120
+  extra_deny_patterns: []
+
+prices:                           # USD per 1M tokens, used for cost tracking and budgets
+  deepseek/deepseek-v4.1-flash: {input_per_mtok: 0.06, output_per_mtok: 0.6}
+  deepseek-chat: {input_per_mtok: 0.27, output_per_mtok: 1.1}
+  claude-opus-5-5: {input_per_mtok: 4.0, output_per_mtok: 20.0}
+  anthropic/claude-opus-5.5: {input_per_mtok: 4.0, output_per_mtok: 20.0}

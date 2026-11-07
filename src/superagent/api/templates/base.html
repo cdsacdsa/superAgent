@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}SuperAgent{% endblock %}</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--muted:#667085;--line:#e4e7ec;--accent:#2f5bea;
+--good:#127a46;--warn:#b54708;--bad:#b42318;--chip:#eef2ff}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#171b23;--ink:#e6e8ee;--muted:#98a2b3;--line:#2a303c;
+--accent:#7aa2ff;--good:#4ade80;--warn:#fbbf24;--bad:#f87171;--chip:#1f2a44}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--card)}
+header a{color:inherit;text-decoration:none;font-weight:700}main{max-width:1200px;margin:0 auto;padding:20px 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}.kpi b{display:block;font-size:22px}
+.kpi span{color:var(--muted);font-size:12px}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}.chip{display:inline-block;padding:1px 8px;border-radius:99px;background:var(--chip);font-size:12px}
+.s-resolved{color:var(--good)}.s-handed_over{color:var(--warn)}.s-waiting_human,.s-proposed{color:var(--accent);font-weight:600}
+.sla-at_risk{color:var(--warn)}.sla-breached{color:var(--bad);font-weight:700}.muted{color:var(--muted)}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--bg);padding:10px;border-radius:8px;border:1px solid var(--line);max-height:360px;overflow:auto}
+textarea,input[type=text]{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+button{padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:var(--accent);color:#fff;cursor:pointer;font:inherit}
+button.secondary{background:transparent;color:var(--ink)}button.danger{background:var(--bad)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:800px){.grid2{grid-template-columns:1fr}.hide-sm{display:none}}
+a{color:var(--accent)}.overflow{overflow-x:auto}
+</style>
+</head>
+<body>
+<header><a href="/">🛠️ SuperAgent · L2/L3 Support</a><span class="muted">{{ user }}</span></header>
+<main>{% block body %}{% endblock %}</main>
+</body>
+</html>
