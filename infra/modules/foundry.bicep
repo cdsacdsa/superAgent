@@ -10,8 +10,10 @@ param userPrincipalId string = ''
 
 @description('Fast tier model: { name, format, version, sku, capacity }. version may be empty (= default).')
 param fastModel object
-@description('Expert tier model: { name, format, version, sku, capacity }.')
+@description('Expert tier model: { name, format, version, sku, capacity }. Empty name = no expert deployment.')
 param expertModel object
+@description('Required for Anthropic (Claude) models: { organizationName, countryCode, industry }. Azure uses it to accept the Anthropic Marketplace offer on your behalf, so it must describe the real organization.')
+param expertProviderData object = {}
 
 var cognitiveServicesUser = 'a97b65f3-24c7-4388-baec-2e87135dc908'
 var name = 'ais-${prefix}-${token}'
@@ -40,16 +42,16 @@ resource fast 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
   }
 }
 
-// Deployments on one account are created one at a time.
-resource expert 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+// Deployments on one account are created one at a time. The preview API carries modelProviderData.
+resource expert 'Microsoft.CognitiveServices/accounts/deployments@2025-10-01-preview' = if (!empty(expertModel.name)) {
   parent: foundry
   name: expertModel.name
   dependsOn: [fast]
   sku: { name: expertModel.sku, capacity: expertModel.capacity }
-  properties: {
+  properties: union({
     model: union({ format: expertModel.format, name: expertModel.name }, empty(expertModel.version) ? {} : { version: expertModel.version })
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
-  }
+  }, expertModel.format == 'Anthropic' ? { modelProviderData: expertProviderData } : {})
 }
 
 resource miRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
@@ -75,4 +77,4 @@ resource userRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!em
 output name string = foundry.name
 output openaiBaseUrl string = 'https://${name}.services.ai.azure.com/openai/v1/'
 output fastDeployment string = fast.name
-output expertDeployment string = expert.name
+output expertDeployment string = empty(expertModel.name) ? '' : expert.name

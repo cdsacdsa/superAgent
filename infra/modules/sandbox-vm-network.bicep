@@ -25,7 +25,7 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
       {
         name: 'deny-internet-outbound'
         properties: {
-          priority: 100
+          priority: 110
           direction: 'Outbound'
           access: 'Deny'
           protocol: '*'
@@ -39,7 +39,7 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
         // Run Command and the VM agent need the Azure platform endpoints
         name: 'allow-azure-cloud-outbound'
         properties: {
-          priority: 90
+          priority: 100
           direction: 'Outbound'
           access: 'Allow'
           protocol: 'Tcp'
@@ -52,7 +52,7 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
       {
         name: 'deny-vnet-lateral'
         properties: {
-          priority: 110
+          priority: 120
           direction: 'Outbound'
           access: 'Deny'
           protocol: '*'

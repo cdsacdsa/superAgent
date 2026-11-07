@@ -60,11 +60,16 @@ param foundryFastSku string = 'GlobalStandard'
 param foundryFastCapacity int = 50
 @description('reasoning_effort for the fast tier (GPT-5-class models: low keeps it fast and cheap; empty = not sent).')
 param fastReasoningEffort string = ''
+@description('Expert tier model; "none" = no expert deployment (the agent hands hard cases to a human).')
 param foundryExpertModel string = 'claude-opus-5-5'
 param foundryExpertModelFormat string = 'Anthropic'
 param foundryExpertModelVersion string = ''
 param foundryExpertSku string = 'GlobalStandard'
 param foundryExpertCapacity int = 10
+@description('Claude in Foundry only: legal organization name, ISO country code and industry (technology, finance, healthcare, education, retail, manufacturing, government, media, other). Deploying accepts the Anthropic Marketplace terms for that organization.')
+param claudeOrganizationName string = ''
+param claudeCountryCode string = ''
+param claudeIndustry string = ''
 
 @allowed(['free', 'basic', 'standard'])
 param searchSku string = 'free'
@@ -190,11 +195,16 @@ module foundry 'modules/foundry.bicep' = if (foundryOn) {
       capacity: foundryFastCapacity
     }
     expertModel: {
-      name: foundryExpertModel
+      name: foundryExpertModel == 'none' ? '' : foundryExpertModel
       format: foundryExpertModelFormat
       version: foundryExpertModelVersion
       sku: foundryExpertSku
       capacity: foundryExpertCapacity
+    }
+    expertProviderData: {
+      organizationName: claudeOrganizationName
+      countryCode: claudeCountryCode
+      industry: claudeIndustry
     }
   }
 }
@@ -224,7 +234,7 @@ module apps 'modules/apps.bicep' = {
     fastModel: foundryOn ? foundry!.outputs.fastDeployment : fastModel
     fastUseEntra: foundryOn
     fastReasoningEffort: fastReasoningEffort
-    expertProvider: foundryOn ? 'foundry' : expertProvider
+    expertProvider: foundryOn ? (foundryExpertModelFormat == 'Anthropic' ? 'foundry' : 'openai_compat') : expertProvider
     expertModel: foundryOn ? foundry!.outputs.expertDeployment : expertModel
     foundryResource: foundryOn ? foundry!.outputs.name : foundryResource
     productSandboxImage: productSandboxImage

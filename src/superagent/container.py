@@ -32,8 +32,8 @@ def build_llm(tier: str, provider: str, model: str, s: Settings, policy: AgentPo
 
         base_url = s.fast_base_url if tier == "fast" else (s.expert_base_url or s.fast_base_url)
         key = s.fast_api_key if tier == "fast" else (s.expert_api_key or s.fast_api_key)
-        if tier == "fast" and s.fast_use_entra and not s.fast_api_key:
-            key = azure_token_provider(s.azure_client_id)
+        if s.fast_use_entra and not key and not (tier == "expert" and s.expert_base_url):
+            key = azure_token_provider(s.azure_client_id)  # Foundry endpoint shared by both tiers
         effort = s.fast_reasoning_effort if tier == "fast" else ""
         return OpenAICompatProvider(tier, model, base_url, key, price, reasoning_effort=effort)
     from .llm.anthropic_provider import AnthropicProvider, build_anthropic_client
@@ -175,7 +175,7 @@ def build_services(settings: Settings | None = None, policy: AgentPolicy | None 
     knowledge, kedb = (overrides.pop("knowledge"), None) if "knowledge" in overrides else build_knowledge(s, itsm)
     fast = overrides.pop("fast", None) or build_llm("fast", s.fast_provider, s.fast_model, s, policy)
     expert = overrides.pop("expert", None)
-    if expert is None and policy.routing.expert_enabled:
+    if expert is None and policy.routing.expert_enabled and s.expert_model:
         expert = build_llm("expert", s.expert_provider, s.expert_model, s, policy)
     services = Services(
         policy=policy,

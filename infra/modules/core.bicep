@@ -69,7 +69,7 @@ resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 
 // ---------------- key vault (RBAC) + secrets
 resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
-  name: 'kv-${take(prefix, 8)}-${token}'
+  name: 'kv${replace(take(prefix, 8), '-', '')}${token}' // max 24 chars, no hyphens to avoid '--'
   location: location
   tags: tags
   properties: {
