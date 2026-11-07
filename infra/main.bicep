@@ -97,6 +97,8 @@ param vmSetupScript string = ''
 @description('GitHub repo (owner/name) and branch whose workflow may build and roll out the apps (deploy-only). Empty = none.')
 param githubRepo string = ''
 param githubBranch string = 'main'
+@description('Repo part of the OIDC subject when GitHub sends the ID form, e.g. owner@123/repo@456.')
+param githubSubjectRepo string = ''
 
 @description('Set by azd once the apps exist (SERVICE_*_RESOURCE_EXISTS).')
 param apiExists bool = false
@@ -282,6 +284,7 @@ module cloudOps 'modules/cloud-ops.bicep' = {
     token: token
     githubRepo: githubRepo
     githubBranch: githubBranch
+    githubSubjectRepo: githubSubjectRepo
     registryName: core.outputs.registryName
     apiName: apps.outputs.apiName
     workerName: apps.outputs.workerName

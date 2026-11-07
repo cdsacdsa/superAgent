@@ -9,6 +9,8 @@ param token string
 @description('owner/repo whose workflow may deploy, e.g. "contoso/superAgent". Empty = no deploy identity.')
 param githubRepo string = ''
 param githubBranch string = 'main'
+@description('Repo part of the OIDC subject. GitHub may send the ID form "owner@<id>/repo@<id>" (the login error shows it); empty = githubRepo.')
+param githubSubjectRepo string = ''
 param registryName string
 param apiName string
 param workerName string
@@ -46,7 +48,7 @@ resource federated 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedId
   name: 'github-${replace(githubBranch, '/', '-')}'
   properties: {
     issuer: 'https://token.actions.githubusercontent.com'
-    subject: 'repo:${githubRepo}:ref:refs/heads/${githubBranch}'
+    subject: 'repo:${empty(githubSubjectRepo) ? githubRepo : githubSubjectRepo}:ref:refs/heads/${githubBranch}'
     audiences: ['api://AzureADTokenExchange']
   }
 }

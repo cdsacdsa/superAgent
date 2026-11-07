@@ -408,6 +408,10 @@ azd env set SA_GITHUB_BRANCH <default branch>
 azd provision
 ```
 
+If the first run fails with `AADSTS700213 ... subject 'repo:owner@<id>/repo@<id>:...'`, GitHub is sending the
+ID form of the subject: `azd env set SA_GITHUB_SUBJECT_REPO "owner@<id>/repo@<id>"` (copy it from the error)
+and `azd provision` again.
+
 Put the output `GITHUB_DEPLOY_CLIENT_ID`, your tenant and subscription IDs, the registry, resource group and app
 names in the workflow's `env` defaults or in repository variables of the same names. None of them is a secret:
 Azure only issues tokens to workflows running on that branch of that repository.

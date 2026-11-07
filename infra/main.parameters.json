@@ -49,6 +49,7 @@
     "vmSetupScript": { "value": "${SA_VM_SETUP_SCRIPT=}" },
     "githubRepo": { "value": "${SA_GITHUB_REPO=}" },
     "githubBranch": { "value": "${SA_GITHUB_BRANCH=main}" },
+    "githubSubjectRepo": { "value": "${SA_GITHUB_SUBJECT_REPO=}" },
     "apiExists": { "value": "${SERVICE_API_RESOURCE_EXISTS=false}" },
     "workerExists": { "value": "${SERVICE_WORKER_RESOURCE_EXISTS=false}" },
     "atlassianApiToken": { "value": "${SA_ATLASSIAN_API_TOKEN=}" },
