@@ -51,6 +51,9 @@ param jiraKbEnabled bool = false
 param jiraKbProjects string = ''
 param vmInstallerBlobUrl string = ''
 param vmSetupScript string = ''
+@description('Images azd deployed last time; keeps re-provisioning from resetting the apps to the placeholder.')
+param apiImage string = ''
+param workerImage string = ''
 
 // Demo mode (mock ITSM): the mock ticket system lives in memory, so the API runs the worker in-process.
 var demoMode = itsmProvider == 'mock'
@@ -242,7 +245,7 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
       containers: [
         {
           name: 'api'
-          image: placeholderImage
+          image: empty(apiImage) ? placeholderImage : apiImage
           resources: { cpu: json('1.0'), memory: '2Gi' }
           env: concat(commonEnv, secretEnv, [
             { name: 'SA_RUN_WORKER_INPROC', value: string(demoMode) }
@@ -276,7 +279,7 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
       containers: [
         {
           name: 'worker'
-          image: placeholderImage
+          image: empty(workerImage) ? placeholderImage : workerImage
           command: ['python', '-m', 'superagent.worker']
           resources: { cpu: json('1.0'), memory: '2Gi' }
           env: concat(commonEnv, secretEnv, [

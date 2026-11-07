@@ -94,6 +94,9 @@ param jiraKbProjects string = ''
 @description('Windows sandbox VMs: installer blob (in the sandbox storage account) and setup script path inside the image.')
 param vmInstallerBlobUrl string = ''
 param vmSetupScript string = ''
+@description('Set by azd after the first deploy (SERVICE_*_IMAGE_NAME).')
+param apiImage string = ''
+param workerImage string = ''
 
 // ---------------- secrets (stored in Key Vault, never in app settings)
 @secure()
@@ -249,6 +252,8 @@ module apps 'modules/apps.bicep' = {
     jiraKbProjects: jiraKbProjects
     vmInstallerBlobUrl: vmInstallerBlobUrl
     vmSetupScript: vmSetupScript
+    apiImage: apiImage
+    workerImage: workerImage
     servicenowInstance: servicenowInstance
     servicenowUser: servicenowUser
     jiraBaseUrl: jiraBaseUrl
