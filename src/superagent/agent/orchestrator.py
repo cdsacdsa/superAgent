@@ -101,6 +101,17 @@ class Orchestrator:
             await self.s.queue.send(QueueMessage(kind="process_ticket", ticket_id=ticket.id, reason=reason))
         return created
 
+    async def requeue(self, ticket_id: str, reason: str = "manual") -> bool:
+        """Queue an existing open case again, e.g. after its queue message was lost (in-memory queue restart).
+        Cases waiting for a person or already closed are left alone."""
+        case = await self.s.store.get(ticket_id)
+        if case is None or case.status not in (CaseStatus.NEW, CaseStatus.TRIAGED, CaseStatus.INVESTIGATING,
+                                                CaseStatus.EXPERT_REVIEW):  # fmt: skip
+            return False
+        await self.s.event(case, "requeued", f"queued again via {reason}")
+        await self.s.queue.send(QueueMessage(kind="process_ticket", ticket_id=ticket_id, reason=reason))
+        return True
+
     async def handle(self, msg: QueueMessage) -> None:
         case = await self.s.store.acquire(msg.ticket_id, self.s.worker_id)
         if case is None:

@@ -287,3 +287,17 @@ def test_product_target_uses_code_interpreter_when_no_product_pool():
     assert set(sb.targets) == {"linux", "product"}
     assert "app.py" in sb.by_target["product"].bootstrap or "YXBw" in sb.by_target["product"].bootstrap
     assert product_notes(s) == FILE_PRODUCT_NOTES
+
+
+async def test_requeue_only_open_cases(make_env):
+    from superagent.models import CaseStatus
+
+    env = make_env()
+    assert await env.orch.intake("INC0010002")
+    env.queue.q.get_nowait()  # the message is lost (e.g. the in-memory queue restarted)
+    assert await env.orch.requeue("INC0010002") and env.queue.q.get_nowait().ticket_id == "INC0010002"
+    case = await env.store.get("INC0010002")
+    case.status = CaseStatus.PROPOSED
+    await env.store.save(case)
+    assert not await env.orch.requeue("INC0010002")  # waiting for approval: left alone
+    assert not await env.orch.requeue("NOPE")

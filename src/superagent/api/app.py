@@ -137,8 +137,11 @@ def create_app(orchestrator=None, run_worker: bool | None = None) -> FastAPI:
 
     @app.post("/api/tickets/{ticket_id}/process")
     async def process_ticket(ticket_id: str, o=Depends(orch), user=Depends(operator)):
-        created = await o.intake(ticket_id, reason=f"manual:{user}")
-        return {"ticket_id": ticket_id, "queued": created, "note": None if created else "case already exists"}
+        if await o.intake(ticket_id, reason=f"manual:{user}"):
+            return {"ticket_id": ticket_id, "queued": True, "note": None}
+        if await o.requeue(ticket_id, reason=f"manual:{user}"):
+            return {"ticket_id": ticket_id, "queued": True, "note": "existing open case queued again"}
+        return {"ticket_id": ticket_id, "queued": False, "note": "case exists and is closed or waiting for a person"}
 
     @app.post("/api/cases/{case_id}/help/{help_id}")
     async def api_answer(case_id: str, help_id: str, body: dict, o=Depends(orch), user=Depends(operator)):
